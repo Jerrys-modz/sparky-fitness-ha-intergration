@@ -299,9 +299,14 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
     const overlays = regions
       .map((r) => {
         const opacity = this._intensity(r.muscle);
+        // stroke-opacity MUST track fill-opacity here, not just be a fixed
+        // value — otherwise every muscle region gets a fully-visible traced
+        // outline even when it wasn't worked at all (fill-opacity 0), which
+        // is what made every region look "outlined" regardless of data.
         return shapeToSvg(r, {
           class: "muscle-region",
           "fill-opacity": opacity.toFixed(2),
+          "stroke-opacity": opacity.toFixed(2),
           "data-muscle": r.muscle,
         });
       })
