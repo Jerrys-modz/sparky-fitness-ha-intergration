@@ -141,6 +141,12 @@ function isoDate(d) {
   return d.toISOString().slice(0, 10);
 }
 
+// Matches the integration's default poll interval, and the same refresh
+// pattern the exercise-history/weight cards use. Without this, editing an
+// exercise's category/muscles in SparkyFitness (or logging a new workout)
+// wouldn't show up here until the popup/card happened to remount.
+const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+
 class SparkyFitnessMuscleMapCard extends HTMLElement {
   constructor() {
     super();
@@ -169,7 +175,12 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
       this._viewEndDate = new Date();
       this._viewEndDate.setHours(0, 0, 0, 0);
       this._fetchSummary();
+      this._timer = setInterval(() => this._fetchSummary(), REFRESH_INTERVAL_MS);
     }
+  }
+
+  disconnectedCallback() {
+    if (this._timer) clearInterval(this._timer);
   }
 
   getCardSize() {
