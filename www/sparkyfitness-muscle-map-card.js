@@ -84,8 +84,8 @@ const BASE_SHAPES = [
   { t: "circle", cx: 100, cy: 28, r: 20 },
   { t: "path", d: D.neck },
   { t: "path", d: D.torso },
-  { t: "ellipse", cx: 46, cy: 70, rx: 17, ry: 15 },
-  { t: "ellipse", cx: 154, cy: 70, rx: 17, ry: 15 },
+  { t: "ellipse", cx: 46, cy: 70, rx: 15, ry: 13 },
+  { t: "ellipse", cx: 154, cy: 70, rx: 15, ry: 13 },
   { t: "path", d: D.lUpperArm },
   { t: "path", d: D.rUpperArm },
   { t: "path", d: D.lForearm },
@@ -105,8 +105,8 @@ const BASE_SHAPES = [
 // silhouette with blue fill-opacity scaled by how many sets that muscle got.
 const FRONT_REGIONS = [
   { muscle: "neck", t: "path", d: D.neck },
-  { muscle: "shoulders", t: "ellipse", cx: 46, cy: 70, rx: 17, ry: 15 },
-  { muscle: "shoulders", t: "ellipse", cx: 154, cy: 70, rx: 17, ry: 15 },
+  { muscle: "shoulders", t: "ellipse", cx: 46, cy: 70, rx: 15, ry: 13 },
+  { muscle: "shoulders", t: "ellipse", cx: 154, cy: 70, rx: 15, ry: 13 },
   { muscle: "chest", t: "path", d: D.chest },
   { muscle: "biceps", t: "path", d: D.lUpperArm },
   { muscle: "biceps", t: "path", d: D.rUpperArm },
@@ -121,8 +121,8 @@ const FRONT_REGIONS = [
 const BACK_REGIONS = [
   { muscle: "neck", t: "path", d: D.neck },
   { muscle: "traps", t: "path", d: D.traps },
-  { muscle: "shoulders", t: "ellipse", cx: 46, cy: 70, rx: 17, ry: 15 },
-  { muscle: "shoulders", t: "ellipse", cx: 154, cy: 70, rx: 17, ry: 15 },
+  { muscle: "shoulders", t: "ellipse", cx: 46, cy: 70, rx: 15, ry: 13 },
+  { muscle: "shoulders", t: "ellipse", cx: 154, cy: 70, rx: 15, ry: 13 },
   { muscle: "lats", t: "path", d: D.lLat },
   { muscle: "lats", t: "path", d: D.rLat },
   { muscle: "upper_back", t: "path", d: D.upperBack },
@@ -306,21 +306,31 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
         });
       })
       .join("");
+    // gradientUnits="userSpaceOnUse" with fixed coordinates spanning the
+    // whole 200x420 canvas — NOT the default objectBoundingBox — is the key
+    // bit here. Without it, every individual shape (each arm segment, the
+    // torso, each thigh, the pelvis...) computes its own independent
+    // gradient from its own bounding box, so the shading resets at every
+    // shape boundary and the body reads as a stack of separate panels
+    // (like a toy action figure) instead of one continuously-lit form.
+    // Sharing one gradient across all shapes makes adjoining parts blend.
     return `<svg viewBox="0 0 200 420" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <linearGradient id="${baseGradId}" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="#75757f"/>
-          <stop offset="100%" stop-color="#3d3d46"/>
+        <linearGradient id="${baseGradId}" gradientUnits="userSpaceOnUse" x1="20" y1="0" x2="180" y2="420">
+          <stop offset="0%" stop-color="#7a7a85"/>
+          <stop offset="55%" stop-color="#57575f"/>
+          <stop offset="100%" stop-color="#3a3a42"/>
         </linearGradient>
-        <linearGradient id="${highlightGradId}" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="#74c6ff"/>
-          <stop offset="100%" stop-color="#1f7bc9"/>
+        <linearGradient id="${highlightGradId}" gradientUnits="userSpaceOnUse" x1="20" y1="0" x2="180" y2="420">
+          <stop offset="0%" stop-color="#7fcaff"/>
+          <stop offset="55%" stop-color="#4aa8ee"/>
+          <stop offset="100%" stop-color="#1f6fb8"/>
         </linearGradient>
       </defs>
-      <g fill="url(#${baseGradId})" stroke="rgba(0,0,0,0.35)" stroke-width="1" stroke-linejoin="round">
+      <g fill="url(#${baseGradId})" stroke="url(#${baseGradId})" stroke-width="1.25">
         ${base}
       </g>
-      <g fill="url(#${highlightGradId})" stroke="rgba(0,0,0,0.3)" stroke-width="1" stroke-linejoin="round">
+      <g fill="url(#${highlightGradId})" stroke="url(#${highlightGradId})" stroke-width="1.25">
         ${overlays}
       </g>
     </svg>`;
