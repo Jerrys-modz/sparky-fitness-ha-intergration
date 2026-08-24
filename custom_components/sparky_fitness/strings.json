@@ -259,6 +259,24 @@
           "description": "Only needed if you have more than one SparkyFitness server configured."
         }
       }
+    },
+    "get_muscle_group_summary": {
+      "name": "Get muscle group summary",
+      "description": "Read-only, on-demand sets-per-muscle-group breakdown for the muscle-map dashboard card.",
+      "fields": {
+        "days": {
+          "name": "Days",
+          "description": "Size of the window to summarize, ending at end_date."
+        },
+        "end_date": {
+          "name": "End date",
+          "description": "Last day of the window (YYYY-MM-DD). Defaults to today."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
     }
   }
 }

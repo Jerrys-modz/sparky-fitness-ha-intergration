@@ -16,6 +16,7 @@ SparkyFitness's API key creation flow has no way to mint a narrower
 from __future__ import annotations
 
 import logging
+from datetime import date as date_type
 
 import voluptuous as vol
 
@@ -25,7 +26,12 @@ from homeassistant.util import dt as dt_util
 
 from .api import SparkyFitnessApiError
 from .const import DOMAIN
-from .coordinator import SparkyFitnessCoordinator, _get, _summarize_exercise_sessions
+from .coordinator import (
+    SparkyFitnessCoordinator,
+    _get,
+    _muscle_group_summary,
+    _summarize_exercise_sessions,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,6 +44,7 @@ SERVICE_LOG_FOOD_CHOICE = "log_food_choice"
 SERVICE_SEARCH_EXERCISE_CHOICES = "search_exercise_choices"
 SERVICE_LOG_EXERCISE_CHOICE = "log_exercise_choice"
 SERVICE_GET_EXERCISE_HISTORY = "get_exercise_history"
+SERVICE_GET_MUSCLE_GROUP_SUMMARY = "get_muscle_group_summary"
 
 ATTR_VALUE = "value"
 ATTR_CONFIG_ENTRY_ID = "config_entry_id"
@@ -52,6 +59,7 @@ ATTR_QUANTITY = "quantity"
 ATTR_UNIT = "unit"
 ATTR_EXERCISE_ID = "exercise_id"
 ATTR_DAYS = "days"
+ATTR_END_DATE = "end_date"
 
 _ALL_SERVICES = (
     SERVICE_LOG_WATER,
@@ -63,6 +71,7 @@ _ALL_SERVICES = (
     SERVICE_SEARCH_EXERCISE_CHOICES,
     SERVICE_LOG_EXERCISE_CHOICE,
     SERVICE_GET_EXERCISE_HISTORY,
+    SERVICE_GET_MUSCLE_GROUP_SUMMARY,
 )
 
 _LOG_VALUE_SCHEMA = vol.Schema(
@@ -128,6 +137,23 @@ _GET_EXERCISE_HISTORY_SCHEMA = vol.Schema(
         vol.Optional(ATTR_DAYS, default=14): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=90)
         ),
+        vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
+def _iso_date(value: str) -> date_type:
+    try:
+        return date_type.fromisoformat(value)
+    except (TypeError, ValueError) as err:
+        raise vol.Invalid(f"'{value}' is not a valid YYYY-MM-DD date") from err
+
+
+_GET_MUSCLE_GROUP_SUMMARY_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_DAYS, default=7): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=90)
+        ),
+        vol.Optional(ATTR_END_DATE): _iso_date,
         vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
     }
 )
@@ -448,6 +474,46 @@ async def _handle_get_exercise_history(hass: HomeAssistant, call: ServiceCall) -
     return {"days": history}
 
 
+async def _handle_get_muscle_group_summary(
+    hass: HomeAssistant, call: ServiceCall
+) -> ServiceResponse:
+    """Read-only, on-demand sets-per-muscle-group breakdown for the muscle-map
+    card — like get_exercise_history, this fetches one daily-summary per day
+    in range rather than running on the regular poll cycle.
+
+    `end_date` lets the card page backward/forward by week (e.g. "last week"),
+    defaulting to today so a plain call with just `days` gives "the last N
+    days including today," matching get_exercise_history's default framing.
+
+    See _muscle_group_summary in coordinator.py for how sets are counted and
+    attributed to muscle groups — in short: primary muscles get full credit,
+    secondary muscles get half credit, and exercises with no muscle/category
+    data from SparkyFitness's catalog are skipped since there's nothing to
+    attribute them to."""
+    coordinator = _resolve_coordinator(hass, call)
+    days = call.data[ATTR_DAYS]
+    end_date = call.data.get(ATTR_END_DATE) or dt_util.now().date()
+
+    try:
+        raw_days = await coordinator.client.async_get_daily_summaries_range(
+            end_date, days
+        )
+    except SparkyFitnessApiError as err:
+        raise ServiceValidationError(
+            f"SparkyFitness muscle group summary fetch failed: {err}"
+        ) from err
+
+    muscle_groups = _muscle_group_summary(raw_days)
+    start_date = raw_days[-1]["date"] if raw_days else end_date.isoformat()
+    return {
+        "muscle_groups": muscle_groups,
+        "total_sets": round(sum(muscle_groups.values()), 1),
+        "start_date": start_date,
+        "end_date": end_date.isoformat(),
+        "days": days,
+    }
+
+
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Register the domain-level services (idempotent across config entries)."""
     if hass.services.has_service(DOMAIN, SERVICE_LOG_WATER):
@@ -536,6 +602,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_GET_EXERCISE_HISTORY,
         handle_get_exercise_history,
         schema=_GET_EXERCISE_HISTORY_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+    async def handle_get_muscle_group_summary(call: ServiceCall) -> ServiceResponse:
+        return await _handle_get_muscle_group_summary(hass, call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_MUSCLE_GROUP_SUMMARY,
+        handle_get_muscle_group_summary,
+        schema=_GET_MUSCLE_GROUP_SUMMARY_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
 

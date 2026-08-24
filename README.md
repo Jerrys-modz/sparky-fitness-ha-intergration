@@ -186,10 +186,21 @@ Per configured server, one device with:
   recent completed workouts over `days` (default 14), for the exercise-history
   card below. Fetches one daily-summary request per day in range, so it's meant
   to be called when a card loads/refreshes rather than on the regular poll cycle.
+- **`sparky_fitness.get_muscle_group_summary`** service -- read-only, on-demand
+  sets-per-muscle-group breakdown for the muscle-map card below, over a `days`
+  (default 7) window ending at `end_date` (default today -- pass an earlier date
+  to page back a previous week). Sets are attributed from SparkyFitness's own
+  exercise catalog data: primary muscles get full credit per set, secondary
+  muscles get half credit, and an exercise falls back to its broad `category`
+  (e.g. "Chest") if it has no per-muscle catalog data at all. Exercises with
+  neither -- fully custom, uncataloged exercises -- can't be attributed to
+  anything and are silently skipped, the same limitation apps like Hevy have
+  for unmatched custom exercises. Reuses the same "actually completed" /
+  auto-sync-exclusion rules as `workout_logged_today`.
 
 ## Dashboard cards (optional)
 
-Six small Lovelace cards live in this repo's `www/` folder, each with full install
+Seven small Lovelace cards live in this repo's `www/` folder, each with full install
 instructions in its header comment. HACS doesn't manage these automatically (this
 repo is registered as an Integration, not a Plugin) -- copy whichever ones you want
 into `<config>/www/` and register them as dashboard resources
@@ -210,6 +221,14 @@ into `<config>/www/` and register them as dashboard resources
 - **`sparkyfitness-measurements-card.js`** -- a list of your active custom
   measurement categories with their latest value and date. Discovers entities
   automatically rather than needing an `entity_prefix`.
+- **`sparkyfitness-muscle-map-card.js`** -- a Hevy-style "Body distribution"
+  view: front/back body diagrams with worked muscle groups highlighted in
+  blue, a sets-per-muscle-group list below, and prev/next week navigation.
+  Calls the `get_muscle_group_summary` service above once per week shown. No
+  `entity_prefix` needed -- entirely service-driven. The body diagram is a
+  stylized schematic covering the 17 discrete muscle groups SparkyFitness's
+  catalog data can resolve to; cardio- and full-body-only exercises have no
+  single region to highlight and aren't represented.
 
 The other four (plus the chat card) take an `entity_prefix` config option -- the
 shared middle part of your entity IDs (e.g. `sparkyfitness_fitness_jerrybrooke_com`

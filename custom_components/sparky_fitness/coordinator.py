@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date as date_type, timedelta
 
@@ -127,6 +128,147 @@ def _summarize_exercise_sessions(sessions: list) -> dict:
             sum(_session_duration_minutes(s) for s in done)
         ),
     }
+
+
+_MUSCLE_ALIASES = {
+    "lower back": "lower_back",
+    "middle back": "upper_back",
+    "upper back": "upper_back",
+    "abs": "abdominals",
+    "abdomen": "abdominals",
+    "quads": "quadriceps",
+    "hams": "hamstrings",
+    "delts": "shoulders",
+    "deltoids": "shoulders",
+    "lat": "lats",
+}
+
+_KNOWN_MUSCLES = {
+    "abdominals",
+    "abductors",
+    "adductors",
+    "biceps",
+    "calves",
+    "chest",
+    "forearms",
+    "glutes",
+    "hamstrings",
+    "lats",
+    "lower_back",
+    "upper_back",
+    "neck",
+    "quadriceps",
+    "shoulders",
+    "traps",
+    "triceps",
+}
+
+
+def _normalize_muscle(raw) -> str | None:
+    """Map SparkyFitness's free-text muscle/category names onto the fixed
+    set of keys the muscle-map card knows how to draw a body region for.
+    Returns None for values with no paintable region (e.g. "cardio", "full
+    body") so callers can leave those out of the body diagram entirely."""
+    if not raw:
+        return None
+    key = str(raw).strip().lower().replace("-", " ")
+    key = _MUSCLE_ALIASES.get(key, key.replace(" ", "_"))
+    return key if key in _KNOWN_MUSCLES else None
+
+
+def _parse_muscle_list(value) -> list:
+    """SparkyFitness stores primary_muscles/secondary_muscles as a
+    JSON-encoded array *string* (e.g. '["chest"]') on the exercise
+    entry/snapshot, not a real list — this handles both shapes, plus a
+    bare non-JSON string as a single muscle name."""
+    if isinstance(value, list):
+        items = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            parsed = None
+        items = parsed if isinstance(parsed, list) else [value]
+    else:
+        items = []
+    return [m for m in (_normalize_muscle(v) for v in items) if m]
+
+
+def _exercise_muscle_groups(exercise: dict) -> list:
+    """Primary muscles for one exercise (from a preset session's
+    `exercises[]` entry, or an individual session itself), falling back to
+    its broad category (e.g. "Chest", "Shoulders") if SparkyFitness has no
+    per-muscle data for it — some catalog entries and all manually-created
+    exercises only carry a category, not primary_muscles/secondary_muscles.
+    Checks both the exercise dict directly and a nested `exercise_snapshot`,
+    since which shape carries the catalog fields varies by session type."""
+    snapshot = exercise.get("exercise_snapshot") or {}
+    merged = {**snapshot, **exercise}
+    primary = _parse_muscle_list(merged.get("primary_muscles"))
+    if primary:
+        return primary
+    category = _normalize_muscle(
+        merged.get("category") or merged.get("exercise_category_from_catalog")
+    )
+    return [category] if category else []
+
+
+def _exercise_secondary_muscle_groups(exercise: dict) -> list:
+    snapshot = exercise.get("exercise_snapshot") or {}
+    merged = {**snapshot, **exercise}
+    return _parse_muscle_list(merged.get("secondary_muscles"))
+
+
+def _exercise_set_count(exercise: dict) -> int:
+    """How many sets to credit this exercise with. Prefers sets actually
+    checked off (`completed_at` set); if the exercise has set-level data but
+    none carry a completed_at (older/manually-logged entries), every logged
+    set is counted — the same lenient fallback `_session_is_completed` uses.
+    An exercise with no set-level detail at all (e.g. a duration-based
+    cardio entry) counts as a single unit of work."""
+    sets = exercise.get("sets") or []
+    if not sets:
+        return 1
+    completed = [s for s in sets if s.get("completed_at")]
+    return len(completed) if completed else len(sets)
+
+
+def _muscle_group_summary(days_data: list) -> dict:
+    """Aggregate sets-per-muscle-group across a range of daily-summary
+    payloads (as returned by SparkyFitnessApiClient.async_get_daily_summaries_range),
+    for the muscle-map card. Secondary muscles are credited at half weight —
+    "this exercise also worked X, but less" — a common convention among
+    workout trackers. Reuses the exact same "actually completed" /
+    auto-sync-exclusion rules as workout_logged_today so a pre-filled-but-
+    not-started workout-plan session or an "Active Calories" wearable entry
+    doesn't inflate the totals.
+
+    Exercises with no recognizable primary_muscles or category (custom
+    exercises with neither set) are silently skipped — there's nothing to
+    attribute their sets to."""
+    totals: dict[str, float] = {}
+    for day in days_data:
+        sessions = _get(day.get("summary"), "exerciseSessions", default=[]) or []
+        for session in sessions:
+            if not _session_is_completed(session):
+                continue
+            if (
+                session.get("type") == "individual"
+                and session.get("name") == _AUTO_SYNC_SESSION_NAME
+            ):
+                continue
+            exercises = (
+                session.get("exercises")
+                if session.get("type") == "preset"
+                else [session]
+            ) or []
+            for exercise in exercises:
+                count = _exercise_set_count(exercise)
+                for muscle in _exercise_muscle_groups(exercise):
+                    totals[muscle] = totals.get(muscle, 0) + count
+                for muscle in _exercise_secondary_muscle_groups(exercise):
+                    totals[muscle] = totals.get(muscle, 0) + count * 0.5
+    return {k: round(v, 1) for k, v in totals.items()}
 
 
 def _sum_food_macro(food_entries: list, field: str) -> float:
