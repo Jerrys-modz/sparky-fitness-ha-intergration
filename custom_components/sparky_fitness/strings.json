@@ -1,0 +1,264 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to SparkyFitness",
+        "description": "Enter the URL of your self-hosted SparkyFitness server and a Personal API Key (Profile → Personal API Key in the SparkyFitness web UI).",
+        "data": {
+          "url": "Server URL",
+          "api_key": "API key",
+          "verify_ssl": "Verify SSL certificate"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect to SparkyFitness",
+        "description": "SparkyFitness rejected the API key for {url}. Generate a new Personal API Key (Profile → Personal API Key) and enter it below.",
+        "data": {
+          "api_key": "API key"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The API key was rejected. Generate a new Personal API Key in SparkyFitness (Profile → Personal API Key) and try again.",
+      "cannot_connect": "Could not reach the server. Check the URL and that SparkyFitness is running.",
+      "unknown": "Unexpected error. Check the Home Assistant log for details."
+    },
+    "abort": {
+      "already_configured": "This SparkyFitness server is already configured.",
+      "reauth_successful": "Reconnected to SparkyFitness successfully."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SparkyFitness options",
+        "data": {
+          "scan_interval": "Poll interval (minutes)",
+          "trend_window_days": "Trend window (days, for averages/weight change)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "calories_eaten": { "name": "Calories eaten" },
+      "calories_burned": { "name": "Calories burned" },
+      "calories_remaining": { "name": "Calories remaining" },
+      "calorie_goal": { "name": "Calorie goal" },
+      "net_calories": { "name": "Net calories" },
+      "calorie_progress": { "name": "Calorie goal progress" },
+      "bmr": { "name": "BMR" },
+      "water_intake": { "name": "Water intake" },
+      "step_calories": { "name": "Step calories" },
+      "steps": { "name": "Steps" },
+      "food_entries_logged": { "name": "Food entries logged today" },
+      "exercise_sessions_logged": { "name": "Exercise sessions logged today" },
+      "weight": { "name": "Weight" },
+      "body_fat": { "name": "Body fat" },
+      "bmi": { "name": "BMI" },
+      "protein_eaten": { "name": "Protein eaten" },
+      "carbs_eaten": { "name": "Carbs eaten" },
+      "fat_eaten": { "name": "Fat eaten" },
+      "protein_goal": { "name": "Protein goal" },
+      "carbs_goal": { "name": "Carbs goal" },
+      "fat_goal": { "name": "Fat goal" },
+      "water_goal": { "name": "Water goal" },
+      "avg_calories_7d": { "name": "Average calories (7 day)" },
+      "avg_calories_30d": { "name": "Average calories (30 day)" },
+      "logging_streak_days": { "name": "Logging streak" },
+      "weight_change": { "name": "Weight change" },
+      "avg_protein_30d": { "name": "Average protein (30 day)" },
+      "avg_carbs_30d": { "name": "Average carbs (30 day)" },
+      "avg_fat_30d": { "name": "Average fat (30 day)" },
+      "logging_consistency_30d": { "name": "Logging consistency (30 day)" },
+      "avg_weight_30d": { "name": "Average weight (30 day)" },
+      "sleep_hours": { "name": "Sleep duration" },
+      "sleep_score": { "name": "Sleep score" },
+      "mood": { "name": "Mood" },
+      "weekly_workouts": { "name": "Weekly workouts" },
+      "weekly_volume": { "name": "Weekly volume" },
+      "weekly_reps": { "name": "Weekly reps" },
+      "workout_streak": { "name": "Workout streak" },
+      "workout_longest_streak": { "name": "Workout longest streak" },
+      "monthly_workouts": { "name": "Monthly workouts" },
+      "monthly_volume": { "name": "Monthly volume" },
+      "monthly_reps": { "name": "Monthly reps" },
+      "adaptive_tdee": { "name": "Adaptive TDEE" }
+    },
+    "binary_sensor": {
+      "workout_logged_today": { "name": "Workout logged today" },
+      "fasting_active": { "name": "Fasting active" }
+    },
+    "button": {
+      "log_water_glass": { "name": "Log glass of water" }
+    }
+  },
+  "services": {
+    "log_water": {
+      "name": "Log water",
+      "description": "Log a water intake reading to SparkyFitness for today.",
+      "fields": {
+        "value": {
+          "name": "Amount",
+          "description": "Water amount in milliliters (mL)."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "log_weight": {
+      "name": "Log weight",
+      "description": "Log a weight reading to SparkyFitness for today (kilograms).",
+      "fields": {
+        "value": {
+          "name": "Weight",
+          "description": "Weight in kilograms (kg)."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "log_food": {
+      "name": "Log food",
+      "description": "Search SparkyFitness's food database by name and log the closest match for today.",
+      "fields": {
+        "name": {
+          "name": "Food name",
+          "description": "What to search for, e.g. \"banana\"."
+        },
+        "meal_type": {
+          "name": "Meal",
+          "description": "Must match a meal type name in your SparkyFitness account."
+        },
+        "servings": {
+          "name": "Servings",
+          "description": "Multiplier on the food's default serving size."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "log_exercise": {
+      "name": "Log exercise",
+      "description": "Search SparkyFitness's exercise database by name and log it for today.",
+      "fields": {
+        "name": {
+          "name": "Exercise name",
+          "description": "What to search for, e.g. \"running\"."
+        },
+        "duration_minutes": {
+          "name": "Duration",
+          "description": "Duration in minutes."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "search_food_choices": {
+      "name": "Search food choices",
+      "description": "Read-only food search — returns candidate matches instead of logging, so a caller can let the user pick before logging.",
+      "fields": {
+        "name": {
+          "name": "Food name",
+          "description": "What to search for, e.g. \"chicken\"."
+        },
+        "limit": {
+          "name": "Max results",
+          "description": "How many candidates to return."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "log_food_choice": {
+      "name": "Log food choice",
+      "description": "Log one specific food entry already identified by food_id/variant_id from search_food_choices.",
+      "fields": {
+        "food_id": {
+          "name": "Food ID",
+          "description": "The food_id from a search_food_choices result."
+        },
+        "variant_id": {
+          "name": "Variant ID",
+          "description": "The variant_id from a search_food_choices result, if any."
+        },
+        "quantity": {
+          "name": "Quantity",
+          "description": "Amount to log, in the choice's serving unit."
+        },
+        "unit": {
+          "name": "Unit",
+          "description": "The serving_unit from the search_food_choices result."
+        },
+        "meal_type": {
+          "name": "Meal",
+          "description": "Must match a meal type name in your SparkyFitness account."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "search_exercise_choices": {
+      "name": "Search exercise choices",
+      "description": "Read-only exercise search — returns candidate matches instead of logging, so a caller can let the user pick before logging.",
+      "fields": {
+        "name": {
+          "name": "Exercise name",
+          "description": "What to search for, e.g. \"running\"."
+        },
+        "limit": {
+          "name": "Max results",
+          "description": "How many candidates to return."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "log_exercise_choice": {
+      "name": "Log exercise choice",
+      "description": "Log one specific exercise entry already identified by exercise_id from search_exercise_choices.",
+      "fields": {
+        "exercise_id": {
+          "name": "Exercise ID",
+          "description": "The exercise_id from a search_exercise_choices result."
+        },
+        "duration_minutes": {
+          "name": "Duration",
+          "description": "Duration in minutes."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "get_exercise_history": {
+      "name": "Get exercise history",
+      "description": "Read-only, on-demand list of recent completed workouts over the given number of days, for the exercise-history dashboard card.",
+      "fields": {
+        "days": {
+          "name": "Days",
+          "description": "How many days back to look."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    }
+  }
+}

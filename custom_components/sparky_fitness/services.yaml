@@ -1,0 +1,319 @@
+log_water:
+  name: Log water
+  description: >-
+    Log a water intake reading to SparkyFitness for today.
+  fields:
+    value:
+      name: Amount
+      description: Water amount in milliliters (mL).
+      required: true
+      example: 250
+      selector:
+        number:
+          min: 1
+          max: 5000
+          unit_of_measurement: mL
+          mode: box
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured. Find the ID under Settings > Devices & Services >
+        SparkyFitness > (each entry's) three-dot menu > Device info.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+log_weight:
+  name: Log weight
+  description: >-
+    Log a weight reading to SparkyFitness for today. SparkyFitness stores
+    weight in kilograms internally, so send kg here regardless of the unit
+    shown in the SparkyFitness UI.
+  fields:
+    value:
+      name: Weight
+      description: Weight in kilograms (kg).
+      required: true
+      example: 70.5
+      selector:
+        number:
+          min: 1
+          max: 500
+          step: 0.1
+          unit_of_measurement: kg
+          mode: box
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+log_food:
+  name: Log food
+  description: >-
+    Search SparkyFitness's food database by name and log the closest match
+    for today. Returns what was actually logged, so you can confirm the
+    match was right.
+  fields:
+    name:
+      name: Food name
+      description: What to search for, e.g. "banana" or "grilled chicken breast".
+      required: true
+      example: banana
+      selector:
+        text:
+    meal_type:
+      name: Meal
+      description: >-
+        Must match a meal type name that exists in your SparkyFitness
+        account (defaults typically include breakfast/lunch/dinner/snacks).
+      required: false
+      default: snacks
+      selector:
+        text:
+    servings:
+      name: Servings
+      description: >-
+        Multiplier on the food's default serving size (1 = one default
+        serving).
+      required: false
+      default: 1.0
+      selector:
+        number:
+          min: 0.01
+          max: 50
+          step: 0.25
+          mode: box
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+search_food_choices:
+  name: Search food choices
+  description: >-
+    Read-only food search — returns up to `limit` candidate matches instead
+    of logging anything, so a caller (e.g. a dashboard chat card) can show
+    "did you mean X, Y, or Z?" and let the user pick before logging.
+  fields:
+    name:
+      name: Food name
+      description: What to search for, e.g. "banana" or "grilled chicken breast".
+      required: true
+      example: chicken
+      selector:
+        text:
+    limit:
+      name: Max results
+      description: How many candidates to return.
+      required: false
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+log_food_choice:
+  name: Log food choice
+  description: >-
+    Log one specific food entry already identified by food_id/variant_id —
+    the follow-up half of search_food_choices, once the user has picked
+    which candidate they meant.
+  fields:
+    food_id:
+      name: Food ID
+      description: The `food_id` from a search_food_choices result.
+      required: true
+      selector:
+        text:
+    variant_id:
+      name: Variant ID
+      description: The `variant_id` from a search_food_choices result, if any.
+      required: false
+      selector:
+        text:
+    quantity:
+      name: Quantity
+      description: Amount to log, in the choice's serving_unit (e.g. grams).
+      required: true
+      example: 100
+      selector:
+        number:
+          min: 0.01
+          max: 10000
+          mode: box
+    unit:
+      name: Unit
+      description: The `serving_unit` from the search_food_choices result.
+      required: false
+      selector:
+        text:
+    meal_type:
+      name: Meal
+      description: >-
+        Must match a meal type name that exists in your SparkyFitness
+        account (defaults typically include breakfast/lunch/dinner/snacks).
+      required: false
+      default: snacks
+      selector:
+        text:
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+log_exercise:
+  name: Log exercise
+  description: >-
+    Search SparkyFitness's exercise database by name and log it for today
+    with the given duration. Calories burned are calculated by SparkyFitness
+    from the matched exercise's calorie rate.
+  fields:
+    name:
+      name: Exercise name
+      description: What to search for, e.g. "running" or "bench press".
+      required: true
+      example: running
+      selector:
+        text:
+    duration_minutes:
+      name: Duration
+      description: Duration in minutes.
+      required: true
+      example: 30
+      selector:
+        number:
+          min: 0.1
+          max: 1440
+          unit_of_measurement: min
+          mode: box
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+search_exercise_choices:
+  name: Search exercise choices
+  description: >-
+    Read-only exercise search — returns up to `limit` candidate matches
+    instead of logging anything, so a caller (e.g. a dashboard chat card) can
+    show "did you mean X, Y, or Z?" and let the user pick before logging.
+  fields:
+    name:
+      name: Exercise name
+      description: What to search for, e.g. "running" or "bench press".
+      required: true
+      example: running
+      selector:
+        text:
+    limit:
+      name: Max results
+      description: How many candidates to return.
+      required: false
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+get_exercise_history:
+  name: Get exercise history
+  description: >-
+    Read-only, on-demand list of recent completed workouts (name, calories,
+    duration) over the given number of days — used by the exercise-history
+    dashboard card. Fetches one daily-summary request per day in range, so
+    it's meant to be called when a card loads/refreshes, not on a schedule.
+  fields:
+    days:
+      name: Days
+      description: How many days back to look.
+      required: false
+      default: 14
+      selector:
+        number:
+          min: 1
+          max: 90
+          mode: box
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+log_exercise_choice:
+  name: Log exercise choice
+  description: >-
+    Log one specific exercise entry already identified by exercise_id (from
+    search_exercise_choices), bypassing search entirely.
+  fields:
+    exercise_id:
+      name: Exercise ID
+      description: The exercise_id from a search_exercise_choices result.
+      required: true
+      selector:
+        text:
+    duration_minutes:
+      name: Duration
+      description: Duration in minutes.
+      required: true
+      example: 30
+      selector:
+        number:
+          min: 0.1
+          max: 1440
+          unit_of_measurement: min
+          mode: box
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
