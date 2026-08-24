@@ -4,11 +4,12 @@
  * through the workout_logged_today binary_sensor's attributes (which only
  * ever cover today).
  *
- * Visual style is modeled after Hevy's workout history / body-distribution
- * screens: a row of labeled summary stat chips up top, then each day as a
- * rounded card with an icon-labeled date badge and clearly labeled stat
- * chips (🔥 calories, ⏱ duration, # sets) instead of a plain "·"-separated
- * text line.
+ * Visual style matches the sibling Muscle Map card's Hevy-inspired look:
+ * a dark "canvas" panel with a M/T/W/T/F/S/S day-picker strip (today
+ * highlighted in a solid circle, workout days marked with a dot) up top,
+ * labeled summary stat boxes, then each day as a rounded row with an
+ * icon-labeled date badge and clearly labeled stat chips (🔥 calories,
+ * ⏱ duration, # sets) instead of a plain "·"-separated text line.
  *
  * Calls the sparky_fitness.get_exercise_history service (added in
  * integration v0.9.2 — update custom_components/sparky_fitness/ and
@@ -38,6 +39,10 @@
 
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // matches the integration's default poll interval
 
+function isoDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
 function formatDate(iso) {
   const d = new Date(`${iso}T00:00:00`);
   const today = new Date();
@@ -58,6 +63,14 @@ function weekdayShort(iso) {
   return d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 1).toUpperCase();
 }
 
+function formatWeekRange(days7) {
+  if (!days7.length) return "";
+  const start = new Date(`${days7[0].date}T00:00:00`);
+  const end = new Date(`${days7[days7.length - 1].date}T00:00:00`);
+  const opts = { month: "short", day: "numeric" };
+  return `${start.toLocaleDateString(undefined, opts)} – ${end.toLocaleDateString(undefined, { ...opts, year: "numeric" })}`;
+}
+
 class SparkyFitnessExerciseCard extends HTMLElement {
   constructor() {
     super();
@@ -65,6 +78,7 @@ class SparkyFitnessExerciseCard extends HTMLElement {
     this._days = null;
     this._loading = false;
     this._error = null;
+    this._selectedDate = null;
   }
 
   setConfig(config) {
@@ -96,7 +110,7 @@ class SparkyFitnessExerciseCard extends HTMLElement {
   }
 
   getCardSize() {
-    return 6;
+    return 7;
   }
 
   static getStubConfig() {
@@ -150,7 +164,15 @@ class SparkyFitnessExerciseCard extends HTMLElement {
     return div.innerHTML;
   }
 
-  // Small labeled pill: icon + value + unit/label, e.g. "🔥 320 kcal".
+  _hasWorkout(day) {
+    return !!(
+      (day.workout_names && day.workout_names.length) ||
+      (day.total_exercise_minutes || 0) > 0 ||
+      (day.total_exercise_calories || 0) > 0
+    );
+  }
+
+  // Small labeled pill: icon + value + unit/label, e.g. "🔥 320 kcal burned".
   // Always paired with a label so the number is never shown bare.
   _statChip(icon, value, unit, color) {
     return `
@@ -162,13 +184,46 @@ class SparkyFitnessExerciseCard extends HTMLElement {
     `;
   }
 
+  // Day-picker strip — the M/T/W/T/F/S/S row from the reference Hevy
+  // screen, scoped to the most recent 7 days of the fetched range. Today
+  // gets a solid highlight circle; days with a completed workout get a
+  // small dot; tapping a day scrolls/highlights that row in the list below.
+  _dayPickerHtml(week) {
+    const todayIso = isoDate(new Date());
+    return `
+      <div class="week-nav">
+        <span>${this._escape(formatWeekRange(week))}</span>
+      </div>
+      <div class="day-picker">
+        ${week
+          .map((d) => {
+            const isToday = d.date === todayIso;
+            const isSelected = d.date === this._selectedDate;
+            const worked = this._hasWorkout(d);
+            const cls = ["day-pill"];
+            if (isToday) cls.push("today");
+            if (isSelected) cls.push("selected");
+            return `
+              <button class="${cls.join(" ")}" data-date="${this._escape(d.date)}">
+                <span class="day-dow">${this._escape(weekdayShort(d.date))}</span>
+                <span class="day-num">${this._escape(dayNum(d.date))}</span>
+                <span class="day-dot" style="visibility:${worked ? "visible" : "hidden"}"></span>
+              </button>
+            `;
+          })
+          .join("")}
+      </div>
+    `;
+  }
+
   _rowHtml(day) {
     const names = (day.workout_names || []).join(", ") || "Workout";
     const kcal = Math.round(day.total_exercise_calories || 0);
     const mins = Math.round(day.total_exercise_minutes || 0);
     const count = day.workout_names ? day.workout_names.length : 0;
+    const isSelected = day.date === this._selectedDate;
     return `
-      <div class="row">
+      <div class="row${isSelected ? " row-selected" : ""}" data-date="${this._escape(day.date)}">
         <div class="date-badge">
           <div class="date-dow">${this._escape(weekdayShort(day.date))}</div>
           <div class="date-num">${this._escape(dayNum(day.date))}</div>
@@ -179,13 +234,9 @@ class SparkyFitnessExerciseCard extends HTMLElement {
             <div class="row-when">${this._escape(formatDate(day.date))}</div>
           </div>
           <div class="row-chips">
-            ${this._statChip("mdi:fire", kcal, "kcal burned", "var(--warning-color, #ff9800)")}
-            ${this._statChip("mdi:clock-outline", mins, "min", "var(--info-color, #039be5)")}
-            ${
-              count > 1
-                ? this._statChip("mdi:dumbbell", count, "workouts", "var(--primary-color)")
-                : ""
-            }
+            ${this._statChip("mdi:fire", kcal, "kcal burned", "#ff9f45")}
+            ${this._statChip("mdi:clock-outline", mins, "min", "#4fc3f7")}
+            ${count > 1 ? this._statChip("mdi:dumbbell", count, "workouts", "#7e9cff") : ""}
           </div>
         </div>
       </div>
@@ -198,12 +249,13 @@ class SparkyFitnessExerciseCard extends HTMLElement {
     const weeklyState = this._hass.states[this._entityId("weekly_workouts")];
     const monthlyState = this._hass.states[this._entityId("monthly_workouts")];
 
-    // Range totals, labeled clearly — mirrors the "Total" row Hevy shows
-    // above its per-muscle breakdown.
     const rangeDays = this._days || [];
-    const totalWorkouts = rangeDays.filter(
-      (d) => (d.workout_names && d.workout_names.length) || (d.total_exercise_minutes || 0) > 0
-    ).length;
+    // Service returns most-recent-first; the day-picker wants chronological
+    // order for its last-7-days strip.
+    const chronological = [...rangeDays].reverse();
+    const week = chronological.slice(-7);
+
+    const totalWorkouts = rangeDays.filter((d) => this._hasWorkout(d)).length;
     const totalKcal = Math.round(
       rangeDays.reduce((sum, d) => sum + (d.total_exercise_calories || 0), 0)
     );
@@ -219,7 +271,12 @@ class SparkyFitnessExerciseCard extends HTMLElement {
     } else if (!this._days || this._days.length === 0) {
       body = `<div class="empty">No completed workouts in the last ${this._config.days} days.</div>`;
     } else {
-      body = `<div class="rows">${this._days.map((d) => this._rowHtml(d)).join("")}</div>`;
+      const list = this._selectedDate
+        ? rangeDays.filter((d) => d.date === this._selectedDate)
+        : rangeDays;
+      body = list.length
+        ? `<div class="rows">${list.map((d) => this._rowHtml(d)).join("")}</div>`
+        : `<div class="empty">No workout logged that day.</div>`;
     }
 
     this.shadowRoot.innerHTML = `
@@ -243,41 +300,11 @@ class SparkyFitnessExerciseCard extends HTMLElement {
           color: var(--secondary-text-color);
         }
 
-        /* Summary stat row — labeled totals for the whole range, like the
-           "Total / Sets" line at the top of Hevy's body-distribution list. */
-        .summary {
-          display: flex;
-          gap: 8px;
-          margin-bottom: 14px;
-        }
-        .summary-box {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 2px;
-          padding: 10px 6px;
-          border-radius: 12px;
-          background: var(--secondary-background-color, rgba(127,127,127,0.08));
-        }
-        .summary-value {
-          font-size: 1.3em;
-          font-weight: 700;
-          color: var(--primary-text-color);
-          line-height: 1.1;
-        }
-        .summary-label {
-          font-size: 0.7em;
-          text-transform: uppercase;
-          letter-spacing: 0.03em;
-          color: var(--secondary-text-color);
-        }
-
         /* Weekly / monthly badges from the integration's own trend sensors. */
         .badges {
           display: flex;
           gap: 6px;
-          margin-bottom: 14px;
+          margin-bottom: 12px;
           flex-wrap: wrap;
         }
         .badge {
@@ -289,11 +316,100 @@ class SparkyFitnessExerciseCard extends HTMLElement {
         }
         .badge b { color: var(--primary-text-color); font-weight: 600; }
 
+        /* Dark canvas panel — matches the Muscle Map card so the two feel
+           like one visual family, styled after Hevy's dark UI. */
+        .canvas {
+          background: #17171c;
+          border-radius: 14px;
+          padding: 14px 12px;
+        }
+
+        .week-nav {
+          text-align: center;
+          font-size: 0.8em;
+          color: #9a9aa5;
+          margin-bottom: 10px;
+        }
+
+        .day-picker {
+          display: flex;
+          justify-content: space-between;
+          gap: 4px;
+          margin-bottom: 16px;
+        }
+        .day-pill {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 3px;
+          background: #26262e;
+          border: none;
+          border-radius: 10px;
+          padding: 8px 2px 7px;
+          color: #cfcfd6;
+          font: inherit;
+          cursor: pointer;
+        }
+        .day-pill .day-dow {
+          font-size: 0.62em;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          color: #83838e;
+        }
+        .day-pill .day-num { font-size: 0.95em; font-weight: 600; }
+        .day-pill .day-dot {
+          width: 4px;
+          height: 4px;
+          border-radius: 50%;
+          background: #3ea6ff;
+          margin-top: 1px;
+        }
+        .day-pill.today {
+          background: #3ea6ff;
+          color: #fff;
+        }
+        .day-pill.today .day-dow { color: rgba(255,255,255,0.85); }
+        .day-pill.today .day-dot { background: #fff; }
+        .day-pill.selected:not(.today) {
+          box-shadow: inset 0 0 0 1.5px #3ea6ff;
+        }
+
+        /* Summary stat row — labeled totals for the whole range, like the
+           "Total / Sets" line at the top of Hevy's body-distribution list. */
+        .summary {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        .summary-box {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 2px;
+          padding: 10px 6px;
+          border-radius: 12px;
+          background: #26262e;
+        }
+        .summary-value {
+          font-size: 1.3em;
+          font-weight: 700;
+          color: #fff;
+          line-height: 1.1;
+        }
+        .summary-label {
+          font-size: 0.65em;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          color: #9a9aa5;
+        }
+
         .rows {
           display: flex;
           flex-direction: column;
           gap: 8px;
-          max-height: 360px;
+          max-height: 340px;
           overflow-y: auto;
         }
         .row {
@@ -302,19 +418,18 @@ class SparkyFitnessExerciseCard extends HTMLElement {
           align-items: flex-start;
           padding: 10px;
           border-radius: 12px;
-          background: var(--secondary-background-color, rgba(127,127,127,0.06));
+          background: #26262e;
           transition: background 0.15s ease;
         }
-        .row:hover {
-          background: var(--divider-color, rgba(127,127,127,0.14));
-        }
+        .row:hover { background: #2e2e38; }
+        .row-selected { box-shadow: inset 0 0 0 1.5px #3ea6ff; }
 
         .date-badge {
-          flex: 0 0 44px;
-          height: 44px;
+          flex: 0 0 42px;
+          height: 42px;
           border-radius: 10px;
-          background: var(--primary-color);
-          color: var(--text-primary-color, #fff);
+          background: #3ea6ff;
+          color: #fff;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -322,12 +437,12 @@ class SparkyFitnessExerciseCard extends HTMLElement {
           line-height: 1;
         }
         .date-dow {
-          font-size: 0.6em;
+          font-size: 0.58em;
           opacity: 0.85;
           text-transform: uppercase;
           margin-bottom: 2px;
         }
-        .date-num { font-size: 1em; font-weight: 700; }
+        .date-num { font-size: 0.95em; font-weight: 700; }
 
         .row-main { flex: 1; min-width: 0; }
         .row-top {
@@ -338,17 +453,17 @@ class SparkyFitnessExerciseCard extends HTMLElement {
           margin-bottom: 6px;
         }
         .row-name {
-          font-size: 0.95em;
+          font-size: 0.92em;
           font-weight: 600;
-          color: var(--primary-text-color);
+          color: #f2f2f4;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
         .row-when {
           flex: 0 0 auto;
-          font-size: 0.75em;
-          color: var(--secondary-text-color);
+          font-size: 0.72em;
+          color: #9a9aa5;
         }
 
         .row-chips {
@@ -360,51 +475,33 @@ class SparkyFitnessExerciseCard extends HTMLElement {
           display: inline-flex;
           align-items: center;
           gap: 4px;
-          font-size: 0.75em;
-          color: var(--secondary-text-color);
-          background: var(--card-background-color);
-          border: 1px solid var(--divider-color, rgba(127,127,127,0.2));
+          font-size: 0.72em;
+          color: #cfcfd6;
+          background: #17171c;
+          border: 1px solid #34343e;
           border-radius: 999px;
           padding: 2px 8px 2px 6px;
         }
         .chip ha-icon {
-          --mdc-icon-size: 14px;
-          color: var(--chip-color, var(--primary-color));
+          --mdc-icon-size: 13px;
+          color: var(--chip-color, #3ea6ff);
         }
-        .chip-value {
-          font-weight: 700;
-          color: var(--primary-text-color);
-        }
+        .chip-value { font-weight: 700; color: #fff; }
         .chip-unit { white-space: nowrap; }
 
         .empty {
           font-size: 0.9em;
-          color: var(--secondary-text-color);
+          color: #9a9aa5;
           padding: 24px 0;
           text-align: center;
         }
-        .empty.error { color: var(--error-color, #db4437); }
+        .empty.error { color: var(--error-color, #ff6b6b); }
       </style>
       <ha-card>
         <div class="header">
           <div>
             <div class="title">${this._escape(this._config.title)}</div>
-            <div class="subtitle">Last ${this._config.days} days</div>
-          </div>
-        </div>
-
-        <div class="summary">
-          <div class="summary-box">
-            <div class="summary-value">${totalWorkouts}</div>
-            <div class="summary-label">Workouts</div>
-          </div>
-          <div class="summary-box">
-            <div class="summary-value">${totalKcal.toLocaleString()}</div>
-            <div class="summary-label">Kcal burned</div>
-          </div>
-          <div class="summary-box">
-            <div class="summary-value">${totalMins.toLocaleString()}</div>
-            <div class="summary-label">Minutes</div>
+            <div class="subtitle">Last ${this._config.days} days${this._selectedDate ? " · tap the day again to clear" : ""}</div>
           </div>
         </div>
 
@@ -417,9 +514,36 @@ class SparkyFitnessExerciseCard extends HTMLElement {
             : ""
         }
 
-        ${body}
+        <div class="canvas">
+          ${week.length ? this._dayPickerHtml(week) : ""}
+
+          <div class="summary">
+            <div class="summary-box">
+              <div class="summary-value">${totalWorkouts}</div>
+              <div class="summary-label">Workouts</div>
+            </div>
+            <div class="summary-box">
+              <div class="summary-value">${totalKcal.toLocaleString()}</div>
+              <div class="summary-label">Kcal burned</div>
+            </div>
+            <div class="summary-box">
+              <div class="summary-value">${totalMins.toLocaleString()}</div>
+              <div class="summary-label">Minutes</div>
+            </div>
+          </div>
+
+          ${body}
+        </div>
       </ha-card>
     `;
+
+    this.shadowRoot.querySelectorAll(".day-pill").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const date = btn.getAttribute("data-date");
+        this._selectedDate = this._selectedDate === date ? null : date;
+        this._render();
+      });
+    });
   }
 }
 
