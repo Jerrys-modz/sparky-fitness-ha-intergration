@@ -12,11 +12,12 @@
  * (fully custom exercises) can't be attributed to anything and are skipped —
  * same limitation Hevy itself has for unmatched custom exercises.
  *
- * The body diagram is a stylized schematic, not an anatomical render — it's
- * built from simple shapes, not a 3D model, so proportions are approximate.
- * It only covers the 17 discrete muscle groups SparkyFitness's catalog data
- * can resolve to (see the README); cardio- and full-body-only exercises
- * aren't represented since they have no single region to highlight.
+ * The body diagram is a stylized anatomical illustration (curved muscle
+ * shapes with gradient shading), not a 3D model or photo — it's built from
+ * SVG paths, not a rendered mesh, so proportions are approximate. It only
+ * covers the 17 discrete muscle groups SparkyFitness's catalog data can
+ * resolve to (see the README); cardio- and full-body-only exercises aren't
+ * represented since they have no single region to highlight.
  *
  * Install:
  *   1. Copy this file to <config>/www/sparkyfitness-muscle-map-card.js
@@ -50,63 +51,94 @@ const MUSCLE_LABELS = {
   triceps: "Triceps",
 };
 
-// Base silhouette — the same primitive shapes for both front and back views,
-// filled with a neutral base color so unworked regions still read as a body.
+// Shared limb/torso path data, reused between the neutral base silhouette
+// and the front/back muscle-region overlays so the overlay always lines up
+// exactly with the body underneath it.
+const D = {
+  neck: "M90,46 L110,46 L108,60 L92,60 Z",
+  torso: "M64,62 C64,57 71,54 80,54 L120,54 C129,54 136,57 136,62 L133,102 C131,136 126,158 122,172 L78,172 C74,158 69,136 67,102 Z",
+  chest: "M80,56 C92,50 108,50 120,56 L118,96 C108,110 92,110 82,96 Z",
+  abs: "M84,108 L116,108 L112,170 L88,170 Z",
+  lUpperArm: "M46,80 C34,86 28,102 30,120 C29,134 32,146 37,156 L50,154 C48,142 47,128 47,116 C46,100 48,88 56,80 Z",
+  rUpperArm: "M154,80 C166,86 172,102 170,120 C171,134 168,146 163,156 L150,154 C152,142 153,128 153,116 C154,100 152,88 144,80 Z",
+  lForearm: "M37,156 L50,154 L48,204 C47,212 39,212 38,204 Z",
+  rForearm: "M163,156 L150,154 L152,204 C153,212 161,212 162,204 Z",
+  pelvis: "M78,172 C74,182 73,192 76,200 L124,200 C127,192 126,182 122,172 Z",
+  lThigh: "M76,200 C68,210 64,232 65,258 C64,282 67,302 72,316 L98,316 C100,302 100,282 97,258 C98,232 95,210 90,200 Z",
+  rThigh: "M124,200 C132,210 136,232 135,258 C136,282 133,302 128,316 L102,316 C100,302 100,282 103,258 C102,232 105,210 110,200 Z",
+  lCalf: "M72,316 C68,326 67,342 70,358 C71,368 75,376 80,376 L92,376 C95,376 97,368 96,358 C97,342 96,326 94,316 Z",
+  rCalf: "M128,316 C132,326 133,342 130,358 C129,368 125,376 120,376 L108,376 C105,376 103,368 104,358 C103,342 104,326 106,316 Z",
+  traps: "M72,58 C86,50 114,50 128,58 L118,92 C110,98 90,98 82,92 Z",
+  lLat: "M64,66 C58,82 56,102 62,120 L80,110 C77,92 77,74 82,62 Z",
+  rLat: "M136,66 C142,82 144,102 138,120 L120,110 C123,92 123,74 118,62 Z",
+  upperBack: "M84,94 L116,94 L112,132 L88,132 Z",
+  lowerBack: "M86,132 L114,132 L112,170 L88,170 Z",
+  lAbductor: "M65,206 C62,220 62,236 66,250 L78,246 C75,230 75,214 78,202 Z",
+  rAbductor: "M135,206 C138,220 138,236 134,250 L122,246 C125,230 125,214 122,202 Z",
+  lAdductor: "M88,200 C84,206 82,212 84,218 L116,218 C118,212 116,206 112,200 Z",
+};
+
+// Neutral silhouette — same shapes for both front and back views, filled
+// with a muted gradient so unworked regions still read clearly as a body.
 const BASE_SHAPES = [
-  { t: "circle", cx: 80, cy: 28, r: 20 },
-  { t: "rect", x: 70, y: 46, width: 20, height: 14, rx: 4 },
-  { t: "path", d: "M48,60 L112,60 L104,172 L56,172 Z" },
-  { t: "rect", x: 22, y: 64, width: 22, height: 64, rx: 10 },
-  { t: "rect", x: 116, y: 64, width: 22, height: 64, rx: 10 },
-  { t: "rect", x: 20, y: 128, width: 18, height: 60, rx: 8 },
-  { t: "rect", x: 122, y: 128, width: 18, height: 60, rx: 8 },
-  { t: "rect", x: 54, y: 170, width: 52, height: 30, rx: 10 },
-  { t: "rect", x: 50, y: 196, width: 28, height: 80, rx: 12 },
-  { t: "rect", x: 82, y: 196, width: 28, height: 80, rx: 12 },
-  { t: "rect", x: 54, y: 272, width: 20, height: 68, rx: 9 },
-  { t: "rect", x: 86, y: 272, width: 20, height: 68, rx: 9 },
-  { t: "ellipse", cx: 62, cy: 346, rx: 14, ry: 7 },
-  { t: "ellipse", cx: 98, cy: 346, rx: 14, ry: 7 },
+  { t: "circle", cx: 100, cy: 28, r: 20 },
+  { t: "path", d: D.neck },
+  { t: "path", d: D.torso },
+  { t: "ellipse", cx: 46, cy: 70, rx: 17, ry: 15 },
+  { t: "ellipse", cx: 154, cy: 70, rx: 17, ry: 15 },
+  { t: "path", d: D.lUpperArm },
+  { t: "path", d: D.rUpperArm },
+  { t: "path", d: D.lForearm },
+  { t: "path", d: D.rForearm },
+  { t: "ellipse", cx: 42, cy: 216, rx: 9, ry: 12 },
+  { t: "ellipse", cx: 158, cy: 216, rx: 9, ry: 12 },
+  { t: "path", d: D.pelvis },
+  { t: "path", d: D.lThigh },
+  { t: "path", d: D.rThigh },
+  { t: "path", d: D.lCalf },
+  { t: "path", d: D.rCalf },
+  { t: "ellipse", cx: 80, cy: 388, rx: 14, ry: 8 },
+  { t: "ellipse", cx: 120, cy: 388, rx: 14, ry: 8 },
 ];
 
 // Muscle-group overlay regions per view, drawn on top of the base
 // silhouette with blue fill-opacity scaled by how many sets that muscle got.
 const FRONT_REGIONS = [
-  { muscle: "neck", t: "rect", x: 70, y: 46, width: 20, height: 14, rx: 4 },
-  { muscle: "shoulders", t: "ellipse", cx: 36, cy: 72, rx: 15, ry: 13 },
-  { muscle: "shoulders", t: "ellipse", cx: 124, cy: 72, rx: 15, ry: 13 },
-  { muscle: "chest", t: "path", d: "M54,64 Q80,54 106,64 L102,104 Q80,116 58,104 Z" },
-  { muscle: "biceps", t: "rect", x: 24, y: 80, width: 18, height: 44, rx: 8 },
-  { muscle: "biceps", t: "rect", x: 118, y: 80, width: 18, height: 44, rx: 8 },
-  { muscle: "forearms", t: "rect", x: 21, y: 130, width: 16, height: 54, rx: 7 },
-  { muscle: "forearms", t: "rect", x: 123, y: 130, width: 16, height: 54, rx: 7 },
-  { muscle: "abdominals", t: "rect", x: 62, y: 106, width: 36, height: 60, rx: 8 },
-  { muscle: "adductors", t: "path", d: "M68,168 L92,168 L88,194 L72,194 Z" },
-  { muscle: "quadriceps", t: "rect", x: 51, y: 198, width: 26, height: 72, rx: 10 },
-  { muscle: "quadriceps", t: "rect", x: 83, y: 198, width: 26, height: 72, rx: 10 },
+  { muscle: "neck", t: "path", d: D.neck },
+  { muscle: "shoulders", t: "ellipse", cx: 46, cy: 70, rx: 17, ry: 15 },
+  { muscle: "shoulders", t: "ellipse", cx: 154, cy: 70, rx: 17, ry: 15 },
+  { muscle: "chest", t: "path", d: D.chest },
+  { muscle: "biceps", t: "path", d: D.lUpperArm },
+  { muscle: "biceps", t: "path", d: D.rUpperArm },
+  { muscle: "forearms", t: "path", d: D.lForearm },
+  { muscle: "forearms", t: "path", d: D.rForearm },
+  { muscle: "abdominals", t: "path", d: D.abs },
+  { muscle: "adductors", t: "path", d: D.lAdductor },
+  { muscle: "quadriceps", t: "path", d: D.lThigh },
+  { muscle: "quadriceps", t: "path", d: D.rThigh },
 ];
 
 const BACK_REGIONS = [
-  { muscle: "neck", t: "rect", x: 70, y: 46, width: 20, height: 14, rx: 4 },
-  { muscle: "traps", t: "path", d: "M52,58 L80,50 L108,58 L98,88 L80,94 L62,88 Z" },
-  { muscle: "shoulders", t: "ellipse", cx: 36, cy: 72, rx: 15, ry: 13 },
-  { muscle: "shoulders", t: "ellipse", cx: 124, cy: 72, rx: 15, ry: 13 },
-  { muscle: "lats", t: "path", d: "M40,90 L66,84 L62,140 L42,138 Z" },
-  { muscle: "lats", t: "path", d: "M120,90 L94,84 L98,140 L118,138 Z" },
-  { muscle: "upper_back", t: "rect", x: 66, y: 92, width: 28, height: 42, rx: 6 },
-  { muscle: "lower_back", t: "rect", x: 63, y: 136, width: 34, height: 32, rx: 8 },
-  { muscle: "triceps", t: "rect", x: 24, y: 80, width: 18, height: 44, rx: 8 },
-  { muscle: "triceps", t: "rect", x: 118, y: 80, width: 18, height: 44, rx: 8 },
-  { muscle: "forearms", t: "rect", x: 21, y: 130, width: 16, height: 54, rx: 7 },
-  { muscle: "forearms", t: "rect", x: 123, y: 130, width: 16, height: 54, rx: 7 },
-  { muscle: "glutes", t: "ellipse", cx: 64, cy: 182, rx: 18, ry: 16 },
-  { muscle: "glutes", t: "ellipse", cx: 96, cy: 182, rx: 18, ry: 16 },
-  { muscle: "abductors", t: "rect", x: 42, y: 176, width: 14, height: 36, rx: 6 },
-  { muscle: "abductors", t: "rect", x: 104, y: 176, width: 14, height: 36, rx: 6 },
-  { muscle: "hamstrings", t: "rect", x: 52, y: 200, width: 25, height: 68, rx: 10 },
-  { muscle: "hamstrings", t: "rect", x: 83, y: 200, width: 25, height: 68, rx: 10 },
-  { muscle: "calves", t: "rect", x: 55, y: 274, width: 20, height: 62, rx: 9 },
-  { muscle: "calves", t: "rect", x: 85, y: 274, width: 20, height: 62, rx: 9 },
+  { muscle: "neck", t: "path", d: D.neck },
+  { muscle: "traps", t: "path", d: D.traps },
+  { muscle: "shoulders", t: "ellipse", cx: 46, cy: 70, rx: 17, ry: 15 },
+  { muscle: "shoulders", t: "ellipse", cx: 154, cy: 70, rx: 17, ry: 15 },
+  { muscle: "lats", t: "path", d: D.lLat },
+  { muscle: "lats", t: "path", d: D.rLat },
+  { muscle: "upper_back", t: "path", d: D.upperBack },
+  { muscle: "lower_back", t: "path", d: D.lowerBack },
+  { muscle: "triceps", t: "path", d: D.lUpperArm },
+  { muscle: "triceps", t: "path", d: D.rUpperArm },
+  { muscle: "forearms", t: "path", d: D.lForearm },
+  { muscle: "forearms", t: "path", d: D.rForearm },
+  { muscle: "glutes", t: "ellipse", cx: 86, cy: 190, rx: 17, ry: 16 },
+  { muscle: "glutes", t: "ellipse", cx: 114, cy: 190, rx: 17, ry: 16 },
+  { muscle: "abductors", t: "path", d: D.lAbductor },
+  { muscle: "abductors", t: "path", d: D.rAbductor },
+  { muscle: "hamstrings", t: "path", d: D.lThigh },
+  { muscle: "hamstrings", t: "path", d: D.rThigh },
+  { muscle: "calves", t: "path", d: D.lCalf },
+  { muscle: "calves", t: "path", d: D.rCalf },
 ];
 
 function shapeToSvg(shape, extraAttrs) {
@@ -260,7 +292,9 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
     return 0.35 + 0.65 * (value / max);
   }
 
-  _renderBody(regions) {
+  _renderBody(regions, gradientSuffix) {
+    const baseGradId = `muscleBase-${gradientSuffix}`;
+    const highlightGradId = `muscleHighlight-${gradientSuffix}`;
     const base = BASE_SHAPES.map((s) => shapeToSvg(s, { class: "base-shape" })).join("");
     const overlays = regions
       .map((r) => {
@@ -272,7 +306,24 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
         });
       })
       .join("");
-    return `<svg viewBox="0 0 160 360" xmlns="http://www.w3.org/2000/svg">${base}${overlays}</svg>`;
+    return `<svg viewBox="0 0 200 420" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="${baseGradId}" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#75757f"/>
+          <stop offset="100%" stop-color="#3d3d46"/>
+        </linearGradient>
+        <linearGradient id="${highlightGradId}" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#74c6ff"/>
+          <stop offset="100%" stop-color="#1f7bc9"/>
+        </linearGradient>
+      </defs>
+      <g fill="url(#${baseGradId})" stroke="rgba(0,0,0,0.35)" stroke-width="1" stroke-linejoin="round">
+        ${base}
+      </g>
+      <g fill="url(#${highlightGradId})" stroke="rgba(0,0,0,0.3)" stroke-width="1" stroke-linejoin="round">
+        ${overlays}
+      </g>
+    </svg>`;
   }
 
   _rowsHtml() {
@@ -312,11 +363,11 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
       body = `
         <div class="bodies">
           <div class="body-col">
-            ${this._renderBody(FRONT_REGIONS)}
+            ${this._renderBody(FRONT_REGIONS, "front")}
             <div class="body-label">Front</div>
           </div>
           <div class="body-col">
-            ${this._renderBody(BACK_REGIONS)}
+            ${this._renderBody(BACK_REGIONS, "back")}
             <div class="body-label">Back</div>
           </div>
         </div>
@@ -359,7 +410,7 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
         .canvas {
           background: #17171c;
           border-radius: 12px;
-          padding: 12px 8px 4px;
+          padding: 14px 8px 4px;
         }
         .bodies {
           display: flex;
@@ -375,13 +426,6 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
         .body-col svg {
           width: 100%;
           height: auto;
-        }
-        .base-shape {
-          fill: #52525c;
-        }
-        .muscle-region {
-          fill: #3ea6ff;
-          transition: fill-opacity 0.3s ease;
         }
         .body-label {
           font-size: 0.75em;
