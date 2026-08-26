@@ -324,6 +324,59 @@ get_muscle_group_summary:
       selector:
         text:
 
+get_exercise_trend:
+  name: Get exercise trend
+  description: >-
+    Read-only, on-demand one-rep-max trend for a single exercise, for the
+    exercise-trend dashboard card. Resolves the exercise name the same way
+    log_exercise does (first search match), then estimates a 1RM per session
+    (Epley formula: weight * (1 + reps/30), the same formula SparkyFitness's
+    own Personal Records page uses) from that exercise's recent set history.
+  fields:
+    name:
+      name: Exercise name
+      description: What to search for, e.g. "bench press" or "squat".
+      required: true
+      example: bench press
+      selector:
+        text:
+    sessions:
+      name: Sessions
+      description: How many recent sessions (workouts, not calendar days) to analyze.
+      required: false
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 50
+          mode: box
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+get_one_rep_maxes:
+  name: Get one-rep maxes
+  description: >-
+    Read-only current estimated one-rep-maxes across all strength exercises,
+    for the personal-records dashboard card. Straight from SparkyFitness's
+    own Personal Records matrix — up to 10 exercises, ranked by estimated 1RM.
+  fields:
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
 log_exercise_choice:
   name: Log exercise choice
   description: >-

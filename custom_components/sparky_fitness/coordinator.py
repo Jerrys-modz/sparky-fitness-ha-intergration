@@ -271,6 +271,81 @@ def _muscle_group_summary(days_data: list) -> dict:
     return {k: round(v, 1) for k, v in totals.items()}
 
 
+def _epley_one_rm(weight, reps) -> float | None:
+    """Estimated one-rep-max via the Epley formula: weight * (1 + reps/30).
+    This is the exact formula SparkyFitness's own server uses for the
+    `strength1RMs` field of /api/exercise-stats/prs, so numbers from
+    get_exercise_trend line up with SparkyFitness's own Personal Records
+    page. Returns None for a set with no real weight/reps (bodyweight or
+    duration-only sets) rather than treating those as a 0 kg lift."""
+    try:
+        weight = float(weight)
+        reps = float(reps)
+    except (TypeError, ValueError):
+        return None
+    if weight <= 0 or reps <= 0:
+        return None
+    return weight * (1 + reps / 30)
+
+
+def _matched_exercise_sets(session: dict, exercise_id: str) -> list:
+    """Sets belonging to `exercise_id` within one session from
+    /api/v2/exercise-entries/history?exerciseId= (already server-filtered to
+    sessions containing this exercise). Individual sessions carry the
+    exercise directly; preset (grouped workout) sessions nest it under
+    `exercises`, which — unlike a preset day in the daily-summary shape used
+    elsewhere in this file — may include *other* exercises too, so those are
+    filtered out here rather than counted toward this exercise's sets."""
+    if session.get("type") == "individual":
+        if session.get("exercise_id") != exercise_id:
+            return []
+        return session.get("sets") or []
+    sets = []
+    for exercise in session.get("exercises") or []:
+        if exercise.get("exercise_id") == exercise_id:
+            sets.extend(exercise.get("sets") or [])
+    return sets
+
+
+def _exercise_one_rm_trend(sessions: list, exercise_id: str) -> list[dict]:
+    """One data point per session with a real weight+reps set logged for
+    `exercise_id`, oldest first, for the one-rep-max trend card. A session
+    contributes its single best set (highest estimated 1RM, ties broken by
+    the heavier weight) plus that session's total volume/reps across every
+    matching set. Sessions where this exercise was only done for
+    bodyweight/duration/distance (no weight logged) contribute no point —
+    there's nothing to estimate a 1RM from."""
+    points = []
+    for session in sessions:
+        best = None
+        volume = 0.0
+        total_reps = 0
+        for s in _matched_exercise_sets(session, exercise_id):
+            weight = s.get("weight")
+            reps = s.get("reps")
+            one_rm = _epley_one_rm(weight, reps)
+            if one_rm is None:
+                continue
+            volume += weight * reps
+            total_reps += reps
+            if best is None or one_rm > best[0] or (one_rm == best[0] and weight > best[1]):
+                best = (one_rm, weight, reps)
+        if best is None:
+            continue
+        points.append(
+            {
+                "date": session.get("entry_date"),
+                "estimated_one_rm": round(best[0], 1),
+                "best_set_weight": best[1],
+                "best_set_reps": best[2],
+                "volume": round(volume, 1),
+                "total_reps": total_reps,
+            }
+        )
+    points.sort(key=lambda p: p["date"] or "")
+    return points
+
+
 def _sum_food_macro(food_entries: list, field: str) -> float:
     """Sum one macro across today's food entries, scaled by quantity/serving
     size — the same formula SparkyFitness's own server uses for eaten
