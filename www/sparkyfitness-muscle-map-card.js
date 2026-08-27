@@ -6,11 +6,13 @@
  * Calls the sparky_fitness.get_muscle_group_summary service (added in
  * integration v0.10.0 — update custom_components/sparky_fitness/ and
  * restart/reload HA if this card shows a "service not found" error) once per
- * week shown. Sets are attributed to muscle groups from SparkyFitness's own
- * exercise catalog data (primary muscles get full credit per set, secondary
- * muscles half credit); exercises with no catalog muscle/category data
- * (fully custom exercises) can't be attributed to anything and are skipped —
- * same limitation Hevy itself has for unmatched custom exercises.
+ * week shown, with include_recovery: true (v0.12.0+) so each row also shows
+ * days since that muscle was last worked. Sets are attributed to muscle
+ * groups from SparkyFitness's own exercise catalog data (primary muscles
+ * get full credit per set, secondary muscles half credit); exercises with
+ * no catalog muscle/category data (fully custom exercises) can't be
+ * attributed to anything and are skipped — same limitation Hevy itself has
+ * for unmatched custom exercises.
  *
  * The body diagram is a stylized anatomical illustration (curved muscle
  * shapes with gradient shading), not a 3D model or photo — it's built from
@@ -185,6 +187,7 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._muscleGroups = {};
     this._totalSets = 0;
+    this._recoveryDaysSince = {};
     this._startDate = null;
     this._endDate = null;
     this._loading = false;
@@ -242,17 +245,20 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
         service_data: {
           days: this._config.days,
           end_date: isoDate(this._viewEndDate),
+          include_recovery: true,
         },
         return_response: true,
       });
       const response = (result && (result.response ?? result)) || {};
       this._muscleGroups = response.muscle_groups || {};
       this._totalSets = response.total_sets || 0;
+      this._recoveryDaysSince = response.recovery_days_since || {};
       this._startDate = response.start_date;
       this._endDate = response.end_date;
     } catch (err) {
       this._muscleGroups = {};
       this._totalSets = 0;
+      this._recoveryDaysSince = {};
       this._error =
         (err && err.message) ||
         "Couldn't load muscle group data (requires integration v0.10.0+).";
@@ -341,22 +347,35 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
     </svg>`;
   }
 
+  // "Today" / "Xd ago" / "" (no data within the fetched recovery lookback —
+  // see _MUSCLE_RECOVERY_LOOKBACK_DAYS server-side) per muscle group.
+  _recoveryLabel(muscle) {
+    const days = this._recoveryDaysSince[muscle];
+    if (days == null) return "";
+    if (days <= 0) return "Today";
+    if (days === 1) return "1d ago";
+    return `${days}d ago`;
+  }
+
   _rowsHtml() {
     const keys = Object.keys(MUSCLE_LABELS).sort((a, b) =>
       MUSCLE_LABELS[a].localeCompare(MUSCLE_LABELS[b])
     );
     const rows = keys
-      .map(
-        (k) => `
+      .map((k) => {
+        const recovery = this._recoveryLabel(k);
+        return `
         <div class="row">
           <div class="row-label">${this._escape(MUSCLE_LABELS[k])}</div>
+          <div class="row-recovery">${this._escape(recovery)}</div>
           <div class="row-value">${this._muscleGroups[k] ? this._muscleGroups[k] : 0}</div>
-        </div>`
-      )
+        </div>`;
+      })
       .join("");
     return `
       <div class="row row-total">
         <div class="row-label">Total</div>
+        <div class="row-recovery"></div>
         <div class="row-value">${this._totalSets}</div>
       </div>
       ${rows}
@@ -466,7 +485,14 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
           font-weight: 600;
           border-bottom: 1px solid var(--divider-color, #eee);
         }
-        .row-value { color: var(--secondary-text-color); }
+        .row-label { flex: 1; }
+        .row-recovery {
+          flex: 0 0 auto;
+          font-size: 0.8em;
+          color: var(--secondary-text-color);
+          margin-right: 12px;
+        }
+        .row-value { color: var(--secondary-text-color); min-width: 1.5em; text-align: right; }
         .row-total .row-value { color: var(--primary-text-color); }
         .empty {
           font-size: 0.9em;

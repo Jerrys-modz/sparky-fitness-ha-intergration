@@ -38,6 +38,12 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[SparkyFitnessBinarySensorDescription, ...] = (
         translation_key="fasting_active",
         icon="mdi:timer-sand",
     ),
+    SparkyFitnessBinarySensorDescription(
+        key="pr_today",
+        value_key="pr_today",
+        translation_key="pr_today",
+        icon="mdi:trophy",
+    ),
 )
 
 
@@ -118,4 +124,6 @@ class SparkyFitnessBinarySensor(
                     "remaining_hours": data.get("fasting_remaining_hours"),
                 }
             )
+        if self.entity_description.key == "pr_today":
+            attrs["exercises"] = data.get("pr_exercises_today", [])
         return attrs

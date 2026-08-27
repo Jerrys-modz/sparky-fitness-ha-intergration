@@ -314,6 +314,15 @@ get_muscle_group_summary:
       example: "2026-08-17"
       selector:
         text:
+    include_recovery:
+      name: Include recovery
+      description: >-
+        Also compute days-since-last-worked per muscle group, looking back
+        further than `days` when needed (at least 21 days). Off by default.
+      required: false
+      default: false
+      selector:
+        boolean:
     config_entry_id:
       name: SparkyFitness server
       description: >-
@@ -367,6 +376,78 @@ get_one_rep_maxes:
     for the personal-records dashboard card. Straight from SparkyFitness's
     own Personal Records matrix — up to 10 exercises, ranked by estimated 1RM.
   fields:
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+get_cardio_prs:
+  name: Get cardio PRs
+  description: >-
+    Read-only cardio distance-milestone personal records (1k, 1 mile, 5k,
+    10k, 15k, half/full marathon — best time per sport group), for the
+    cardio-records dashboard card. The cardio half of the same Personal
+    Records matrix get_one_rep_maxes reads the strength half of.
+  fields:
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+get_favorite_routes:
+  name: Get favorite routes
+  description: >-
+    Read-only repeated-route/loop stats (the same run/ride done more than
+    once, with a best time and its recent activities) for the
+    favorite-routes dashboard card.
+  fields:
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
+get_custom_measurement_trend:
+  name: Get custom measurement trend
+  description: >-
+    Read-only, on-demand full trend for one custom measurement category
+    (e.g. blood pressure), for the custom-measurement-trend dashboard card —
+    unlike the category's own sensor, which only carries its latest value.
+  fields:
+    category:
+      name: Category
+      description: >-
+        A custom measurement category's id, display name, or name
+        (case-insensitive) — check Developer Tools > States on that
+        category's sensor if unsure.
+      required: true
+      example: Blood Pressure
+      selector:
+        text:
+    days:
+      name: Days
+      description: How many days back to fetch.
+      required: false
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 90
+          mode: box
     config_entry_id:
       name: SparkyFitness server
       description: >-

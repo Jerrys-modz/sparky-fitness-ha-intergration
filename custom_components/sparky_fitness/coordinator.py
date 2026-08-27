@@ -271,6 +271,61 @@ def _muscle_group_summary(days_data: list) -> dict:
     return {k: round(v, 1) for k, v in totals.items()}
 
 
+_MUSCLE_RECOVERY_LOOKBACK_DAYS = 21
+
+
+def _muscle_last_worked(days_data: list) -> dict[str, str]:
+    """Most recent date each muscle group was worked (primary or secondary
+    credit counted equally — recovery only cares whether it was touched at
+    all, unlike _muscle_group_summary's half-credit volume weighting) across
+    a range of daily-summary payloads, for the muscle-map card's recovery
+    view. Reuses the same "actually completed" / auto-sync-exclusion rules
+    as _muscle_group_summary. `days_data` is most-recent-first (as returned
+    by async_get_daily_summaries_range), so the first date seen for a muscle
+    is already its most recent."""
+    last_worked: dict[str, str] = {}
+    for day in days_data:
+        date_str = day.get("date")
+        sessions = _get(day.get("summary"), "exerciseSessions", default=[]) or []
+        for session in sessions:
+            if not _session_is_completed(session):
+                continue
+            if (
+                session.get("type") == "individual"
+                and session.get("name") == _AUTO_SYNC_SESSION_NAME
+            ):
+                continue
+            exercises = (
+                session.get("exercises")
+                if session.get("type") == "preset"
+                else [session]
+            ) or []
+            for exercise in exercises:
+                muscles = _exercise_muscle_groups(
+                    exercise
+                ) + _exercise_secondary_muscle_groups(exercise)
+                for muscle in muscles:
+                    if muscle not in last_worked:
+                        last_worked[muscle] = date_str
+    return last_worked
+
+
+def _muscle_recovery_days(days_data: list, today: date_type) -> dict[str, int]:
+    """{muscle: days_since_last_worked}, derived from _muscle_last_worked. A
+    muscle absent from the result wasn't worked within the fetched lookback
+    window (_MUSCLE_RECOVERY_LOOKBACK_DAYS, or the summary's own `days` if
+    larger) — treat that as "resting, no recent data" rather than "never
+    trained"."""
+    result = {}
+    for muscle, date_str in _muscle_last_worked(days_data).items():
+        try:
+            worked_date = date_type.fromisoformat(date_str)
+        except (TypeError, ValueError):
+            continue
+        result[muscle] = (today - worked_date).days
+    return result
+
+
 def _epley_one_rm(weight, reps) -> float | None:
     """Estimated one-rep-max via the Epley formula: weight * (1 + reps/30).
     This is the exact formula SparkyFitness's own server uses for the
@@ -525,6 +580,101 @@ def _fasting_summary(fasting: dict | None) -> dict:
     }
 
 
+def _fasting_stats_summary(stats: dict) -> dict:
+    """All-time fasting totals — /api/fasting/stats. Distinct from
+    fasting_active/fasting_elapsed_hours above, which reflect only the
+    currently-in-progress fast, if any. Postgres COUNT/AVG often arrive as
+    numeric strings over JSON, hence the defensive int()/float()."""
+
+    def _as_int(value):
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _minutes_to_hours(value):
+        try:
+            return round(float(value) / 60, 1) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "fasting_total_completed": _as_int(stats.get("total_completed_fasts")),
+        "fasting_avg_duration_hours": _minutes_to_hours(
+            stats.get("average_duration_minutes")
+        ),
+    }
+
+
+def _fasting_streak(history_range: list, today: date_type) -> dict:
+    """Consecutive days with a completed fast overlapping that calendar day,
+    within the polled trend window — /api/fasting/stats has no streak field
+    of its own, so this derives one the same way logging_streak_days is
+    derived from nutrition_trends. A fast's start/end are real timestamps,
+    not calendar dates, so every day its interval touches counts — an
+    overnight fast credits both the day it started and the day it ended."""
+    fasted_days: set[str] = set()
+    for entry in history_range:
+        start = dt_util.parse_datetime(entry.get("start_time") or "")
+        if not start:
+            continue
+        end = dt_util.parse_datetime(entry.get("end_time") or "") or start
+        day = start.date()
+        while day <= end.date():
+            fasted_days.add(day.isoformat())
+            day += timedelta(days=1)
+
+    # Same "don't penalize not having fasted yet today" convention as the
+    # nutrition logging streak: start counting from today if it's there,
+    # otherwise from yesterday.
+    cursor = today
+    if today.isoformat() not in fasted_days:
+        cursor = today - timedelta(days=1)
+    streak = 0
+    while cursor.isoformat() in fasted_days:
+        streak += 1
+        cursor -= timedelta(days=1)
+    return {"fasting_streak_days": streak}
+
+
+def _sleep_debt_summary(sleep_debt: dict) -> dict:
+    """SparkyFitness's rolling sleep-debt estimate (its MCTQ-based sleep
+    model), distinct from the plain "last night's hours" sleep_hours sensor
+    above — /api/sleep-science/sleep-debt. Empty until SparkyFitness has
+    enough sleep history to compute a baseline."""
+    trend = sleep_debt.get("trend") or {}
+
+    def _r1(value):
+        return round(value, 1) if isinstance(value, (int, float)) else None
+
+    return {
+        "sleep_debt_hours": _r1(sleep_debt.get("currentDebt")),
+        "sleep_debt_category": sleep_debt.get("debtCategory"),
+        "sleep_need_hours": _r1(sleep_debt.get("sleepNeed")),
+        "sleep_debt_trend": trend.get("direction"),
+        "sleep_debt_change_7d": _r1(trend.get("change7d")),
+        "sleep_debt_payback_hours": _r1(sleep_debt.get("paybackTime")),
+    }
+
+
+def _pr_today_summary(exercise_prs: dict, today: date_type) -> dict:
+    """Which strength exercises (if any) hit a new estimated-1RM PR today,
+    from SparkyFitness's own Personal Records matrix. `exercise_prs` is
+    polled every cycle specifically so this can flip binary_sensor.pr_today
+    on the same poll a PR happens, rather than only when a card calling
+    get_one_rep_maxes/get_cardio_prs happens to be open."""
+    today_str = today.isoformat()
+    exercises_today = [
+        lift.get("exerciseName")
+        for lift in (exercise_prs.get("strength1RMs") or [])
+        if lift.get("achievedAt") == today_str and lift.get("exerciseName")
+    ]
+    return {
+        "pr_today": len(exercises_today) > 0,
+        "pr_exercises_today": exercises_today,
+    }
+
+
 def _exercise_dashboard_summary(dashboard: dict) -> dict:
     """Weekly workout stats from /api/reports/exercise-dashboard. SparkyFitness's
     own `consistencyData.currentStreak` already excludes auto-synced "Active
@@ -718,8 +868,17 @@ class SparkyFitnessCoordinator(DataUpdateCoordinator[dict]):
             # Adaptive TDEE estimate + preferred water container size.
             **_adaptive_tdee_summary(result.adaptive_tdee),
             **_water_container_summary(result.primary_water_container),
-            # Raw payloads kept around as extra entity attributes.
+            # Personal-records-derived "did I PR today" signal, sleep debt,
+            # and all-time fasting stats + streak.
+            **_pr_today_summary(result.exercise_prs, today),
+            **_sleep_debt_summary(result.sleep_debt),
+            **_fasting_stats_summary(result.fasting_stats),
+            **_fasting_streak(result.fasting_history_range, today),
+            # Raw payloads kept around as extra entity attributes, and as the
+            # source for the get_one_rep_maxes/get_cardio_prs services, which
+            # read this rather than re-fetching /api/exercise-stats/prs.
             "_raw_daily_summary": summary,
             "_raw_check_in": check_in,
             "_raw_latest_check_in": latest_check_in,
+            "_raw_exercise_prs": result.exercise_prs,
         }
