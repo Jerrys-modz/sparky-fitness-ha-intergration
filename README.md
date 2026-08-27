@@ -197,10 +197,22 @@ Per configured server, one device with:
   anything and are silently skipped, the same limitation apps like Hevy have
   for unmatched custom exercises. Reuses the same "actually completed" /
   auto-sync-exclusion rules as `workout_logged_today`.
+- **`sparky_fitness.get_exercise_trend`** service -- read-only, on-demand
+  one-rep-max (1RM) trend for a single exercise, for the exercise-trend card
+  below. Resolves the given `name` to an exercise the same way `log_exercise`
+  does (first search match), then estimates a 1RM per session -- via the
+  Epley formula, `weight * (1 + reps/30)` -- from its last `sessions`
+  (default 20, workouts not calendar days) sessions.
+- **`sparky_fitness.get_one_rep_maxes`** service -- read-only current
+  estimated 1RMs across all strength exercises, for the personal-records
+  card below. A thin wrapper around SparkyFitness's own Personal Records
+  matrix -- up to 10 exercises, ranked by estimated 1RM, using
+  SparkyFitness's own Epley-formula calculation rather than a
+  reimplementation, so the numbers always match SparkyFitness itself.
 
 ## Dashboard cards (optional)
 
-Seven small Lovelace cards live in this repo's `www/` folder, each with full install
+Nine small Lovelace cards live in this repo's `www/` folder, each with full install
 instructions in its header comment. HACS doesn't manage these automatically (this
 repo is registered as an Integration, not a Plugin) -- copy whichever ones you want
 into `<config>/www/` and register them as dashboard resources
@@ -229,6 +241,17 @@ into `<config>/www/` and register them as dashboard resources
   stylized schematic covering the 17 discrete muscle groups SparkyFitness's
   catalog data can resolve to; cardio- and full-body-only exercises have no
   single region to highlight and aren't represented.
+- **`sparkyfitness-personal-records-card.js`** -- a ranked list of your
+  estimated one-rep-maxes across strength exercises, via the
+  `get_one_rep_maxes` service above. No `entity_prefix` needed -- entirely
+  service-driven.
+- **`sparkyfitness-exercise-trend-card.js`** -- search any strength exercise
+  and see its estimated 1RM progress over recent sessions: a current/best
+  1RM summary with a change indicator, a small line chart, and the
+  underlying sessions it was computed from. Via the `get_exercise_trend`
+  service above. Also entirely service-driven; an optional `exercise:`
+  config option preloads a default exercise instead of requiring a search
+  on first load.
 
 The other four (plus the chat card) take an `entity_prefix` config option -- the
 shared middle part of your entity IDs (e.g. `sparkyfitness_fitness_jerrybrooke_com`
@@ -263,10 +286,13 @@ Per poll: `daily-summary`, `check-in/{date}`, `check-in/latest-on-or-before-date
 `fasting/current`, `custom-categories` (+ one `custom-measurements-range` call per
 custom category you have), `exercise-dashboard`, `adaptive-tdee`, and
 `water-containers/primary` -- all read-only GETs. On-demand
-POSTs power the write-back services: `health-data` (water/weight),
-`food-entries` (log_food, after a `foods/search`), and `exercise-entries`
-(log_exercise, after an `exercises/search`). Everything is authenticated with
-`Authorization: Bearer <API key>`.
+GETs power `get_exercise_trend` (`v2/exercise-entries/history?exerciseId=`,
+already server-filtered to one exercise) and `get_one_rep_maxes`
+(`exercise-stats/prs`, SparkyFitness's own pre-computed Personal Records
+matrix). On-demand POSTs power the write-back services: `health-data`
+(water/weight), `food-entries` (log_food, after a `foods/search`), and
+`exercise-entries` (log_exercise, after an `exercises/search`). Everything is
+authenticated with `Authorization: Bearer <API key>`.
 
 Reading or writing your own data never requires special API key permission scopes --
 SparkyFitness always allows a key to act on the data of the account it belongs to.
@@ -289,6 +315,12 @@ SparkyFitness always allows a key to act on the data of the account it belongs t
   for multi-match disambiguation instead.
 - Quantities ("log 2 bananas", "log 150g of chicken") are only understood by the
   **chat card**, not by voice -- voice logging always logs one default serving.
+- `get_exercise_trend` / `get_one_rep_maxes` only surface **strength**
+  exercises with a real weight and rep count logged on at least one set --
+  a set logged as reps-only (bodyweight) or duration/distance-only never
+  produces a 1RM estimate. `get_one_rep_maxes` is additionally capped at the
+  top 10 exercises by estimated 1RM, since that's the size SparkyFitness's
+  own Personal Records endpoint returns.
 
 ## Troubleshooting
 

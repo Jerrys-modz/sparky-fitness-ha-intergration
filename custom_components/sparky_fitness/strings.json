@@ -277,6 +277,34 @@
           "description": "Only needed if you have more than one SparkyFitness server configured."
         }
       }
+    },
+    "get_exercise_trend": {
+      "name": "Get exercise trend",
+      "description": "Read-only, on-demand one-rep-max trend for a single exercise, for the exercise-trend dashboard card.",
+      "fields": {
+        "name": {
+          "name": "Exercise name",
+          "description": "What to search for, e.g. \"bench press\"."
+        },
+        "sessions": {
+          "name": "Sessions",
+          "description": "How many recent sessions (workouts, not calendar days) to analyze."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "get_one_rep_maxes": {
+      "name": "Get one-rep maxes",
+      "description": "Read-only current estimated one-rep-maxes across all strength exercises, for the personal-records dashboard card.",
+      "fields": {
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
     }
   }
 }

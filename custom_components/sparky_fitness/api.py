@@ -50,6 +50,19 @@ its API docs don't fully match the real field names/behavior):
   * GET  /api/exercises/search?searchTerm=
         Exercise search, used to resolve a name to an exercise_id for the
         `log_exercise` service.
+  * GET  /api/v2/exercise-entries/history?exerciseId=&page=&pageSize=
+        Paginated exercise sessions, filterable to a single exercise —
+        `pageSize` counts sessions, not days, so this is one request
+        regardless of how far back those sessions fall. Used by the
+        get_exercise_trend service (one-rep-max trend card) to pull a
+        specific exercise's set history without the per-day fetching
+        get_exercise_history/get_muscle_group_summary need.
+  * GET  /api/exercise-stats/prs
+        SparkyFitness's own Personal Records matrix: cardio distance
+        milestones plus estimated one-rep-maxes per strength exercise
+        (`strength1RMs`, top 10, Epley formula), pre-computed server-side.
+        Used by the get_one_rep_maxes service (personal-records card); only
+        the strength side is surfaced there.
   * POST /api/health-data
         Write-back for `log_water` / `log_weight` services.
         Body: [{"value": <number>, "type": "water"|"weight", "date": "YYYY-MM-DD"}]
@@ -271,6 +284,29 @@ class SparkyFitnessApiClient:
             {"date": d.isoformat(), "summary": _as_dict(s)}
             for d, s in zip(dates, summaries)
         ]
+
+    async def async_get_exercise_entry_history(
+        self, exercise_id: str, page_size: int = 20
+    ) -> list[dict[str, Any]]:
+        """One page of exercise sessions containing a specific exercise,
+        most-recent-first — /api/v2/exercise-entries/history?exerciseId=.
+        `page_size` counts sessions (not days), so unlike
+        async_get_daily_summaries_range this is a single request no matter
+        how far back those sessions actually fall. Used by the
+        get_exercise_trend service to build a one-rep-max trend for one
+        exercise."""
+        data = await self._request(
+            "/api/v2/exercise-entries/history",
+            params={"exerciseId": exercise_id, "page": 1, "pageSize": page_size},
+        )
+        return _as_list(_as_dict(data).get("sessions"))
+
+    async def async_get_exercise_prs(self) -> dict[str, Any]:
+        """SparkyFitness's own Personal Records matrix — cardio distance
+        milestones plus estimated one-rep-maxes per strength exercise
+        (`strength1RMs`, top 10 by estimated 1RM, computed server-side with
+        the Epley formula). Used by the get_one_rep_maxes service."""
+        return _as_dict(await self._request("/api/exercise-stats/prs"))
 
     async def async_search_foods(self, name: str) -> list[dict[str, Any]]:
         """Broad-match food search, used to resolve a name to a food_id for logging."""

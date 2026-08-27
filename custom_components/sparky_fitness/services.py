@@ -28,6 +28,7 @@ from .api import SparkyFitnessApiError
 from .const import DOMAIN
 from .coordinator import (
     SparkyFitnessCoordinator,
+    _exercise_one_rm_trend,
     _get,
     _muscle_group_summary,
     _summarize_exercise_sessions,
@@ -45,6 +46,8 @@ SERVICE_SEARCH_EXERCISE_CHOICES = "search_exercise_choices"
 SERVICE_LOG_EXERCISE_CHOICE = "log_exercise_choice"
 SERVICE_GET_EXERCISE_HISTORY = "get_exercise_history"
 SERVICE_GET_MUSCLE_GROUP_SUMMARY = "get_muscle_group_summary"
+SERVICE_GET_EXERCISE_TREND = "get_exercise_trend"
+SERVICE_GET_ONE_REP_MAXES = "get_one_rep_maxes"
 
 ATTR_VALUE = "value"
 ATTR_CONFIG_ENTRY_ID = "config_entry_id"
@@ -60,6 +63,7 @@ ATTR_UNIT = "unit"
 ATTR_EXERCISE_ID = "exercise_id"
 ATTR_DAYS = "days"
 ATTR_END_DATE = "end_date"
+ATTR_SESSIONS = "sessions"
 
 _ALL_SERVICES = (
     SERVICE_LOG_WATER,
@@ -72,6 +76,8 @@ _ALL_SERVICES = (
     SERVICE_LOG_EXERCISE_CHOICE,
     SERVICE_GET_EXERCISE_HISTORY,
     SERVICE_GET_MUSCLE_GROUP_SUMMARY,
+    SERVICE_GET_EXERCISE_TREND,
+    SERVICE_GET_ONE_REP_MAXES,
 )
 
 _LOG_VALUE_SCHEMA = vol.Schema(
@@ -154,6 +160,22 @@ _GET_MUSCLE_GROUP_SUMMARY_SCHEMA = vol.Schema(
             vol.Coerce(int), vol.Range(min=1, max=90)
         ),
         vol.Optional(ATTR_END_DATE): _iso_date,
+        vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
+_GET_EXERCISE_TREND_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_NAME): str,
+        vol.Optional(ATTR_SESSIONS, default=20): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=50)
+        ),
+        vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
+_GET_ONE_REP_MAXES_SCHEMA = vol.Schema(
+    {
         vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
     }
 )
@@ -514,6 +536,99 @@ async def _handle_get_muscle_group_summary(
     }
 
 
+async def _handle_get_exercise_trend(hass: HomeAssistant, call: ServiceCall) -> ServiceResponse:
+    """Read-only, on-demand one-rep-max trend for a single exercise, for the
+    exercise-trend dashboard card. Resolves `name` to an exercise_id the same
+    way log_exercise does (first search match), then pulls that exercise's
+    recent session history in a single request (unlike get_exercise_history/
+    get_muscle_group_summary, which fetch one daily-summary per calendar day,
+    /api/v2/exercise-entries/history is already filtered server-side to
+    sessions containing this exercise, so `sessions` counts workouts, not
+    days) and estimates a 1RM per session via the Epley formula — see
+    _exercise_one_rm_trend in coordinator.py."""
+    coordinator = _resolve_coordinator(hass, call)
+    name = call.data[ATTR_NAME]
+    sessions = call.data[ATTR_SESSIONS]
+
+    try:
+        results = await coordinator.client.async_search_exercises(name)
+    except SparkyFitnessApiError as err:
+        raise ServiceValidationError(f"SparkyFitness exercise search failed: {err}") from err
+    if not results:
+        raise ServiceValidationError(f"No exercise found in SparkyFitness matching '{name}'.")
+    match = results[0]
+    exercise_id = match["id"]
+
+    try:
+        raw_sessions = await coordinator.client.async_get_exercise_entry_history(
+            exercise_id, page_size=sessions
+        )
+    except SparkyFitnessApiError as err:
+        raise ServiceValidationError(
+            f"SparkyFitness exercise trend fetch failed: {err}"
+        ) from err
+
+    points = _exercise_one_rm_trend(raw_sessions, exercise_id)
+    if not points:
+        return {
+            "exercise_id": exercise_id,
+            "exercise_name": match.get("name"),
+            "points": [],
+            "current_one_rm": None,
+            "best_one_rm": None,
+            "best_one_rm_date": None,
+            "change_since_first": None,
+            "change_percent": None,
+            "sessions_analyzed": 0,
+        }
+
+    best_point = max(points, key=lambda p: p["estimated_one_rm"])
+    first_one_rm = points[0]["estimated_one_rm"]
+    current_one_rm = points[-1]["estimated_one_rm"]
+    change = round(current_one_rm - first_one_rm, 1)
+    change_percent = round(change / first_one_rm * 100, 1) if first_one_rm else None
+
+    return {
+        "exercise_id": exercise_id,
+        "exercise_name": match.get("name"),
+        "points": points,
+        "current_one_rm": current_one_rm,
+        "best_one_rm": best_point["estimated_one_rm"],
+        "best_one_rm_date": best_point["date"],
+        "change_since_first": change,
+        "change_percent": change_percent,
+        "sessions_analyzed": len(points),
+    }
+
+
+async def _handle_get_one_rep_maxes(hass: HomeAssistant, call: ServiceCall) -> ServiceResponse:
+    """Read-only current estimated one-rep-maxes across all strength
+    exercises, for the personal-records dashboard card — straight from
+    SparkyFitness's own Personal Records matrix (/api/exercise-stats/prs).
+    Only the strength side (`strength1RMs`, up to 10 exercises) is surfaced
+    here; the endpoint's cardio distance-milestone PRs use a different shape
+    and aren't part of "one rep max."""
+    coordinator = _resolve_coordinator(hass, call)
+    try:
+        prs = await coordinator.client.async_get_exercise_prs()
+    except SparkyFitnessApiError as err:
+        raise ServiceValidationError(
+            f"SparkyFitness personal records fetch failed: {err}"
+        ) from err
+
+    lifts = [
+        {
+            "exercise_name": lift.get("exerciseName"),
+            "estimated_one_rm": lift.get("estimatedOneRMKg"),
+            "weight": lift.get("weightKg"),
+            "reps": lift.get("reps"),
+            "achieved_at": lift.get("achievedAt"),
+        }
+        for lift in (prs.get("strength1RMs") or [])
+    ]
+    return {"lifts": lifts}
+
+
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Register the domain-level services (idempotent across config entries)."""
     if hass.services.has_service(DOMAIN, SERVICE_LOG_WATER):
@@ -613,6 +728,28 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_GET_MUSCLE_GROUP_SUMMARY,
         handle_get_muscle_group_summary,
         schema=_GET_MUSCLE_GROUP_SUMMARY_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+    async def handle_get_exercise_trend(call: ServiceCall) -> ServiceResponse:
+        return await _handle_get_exercise_trend(hass, call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_EXERCISE_TREND,
+        handle_get_exercise_trend,
+        schema=_GET_EXERCISE_TREND_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+    async def handle_get_one_rep_maxes(call: ServiceCall) -> ServiceResponse:
+        return await _handle_get_one_rep_maxes(hass, call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_ONE_REP_MAXES,
+        handle_get_one_rep_maxes,
+        schema=_GET_ONE_REP_MAXES_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
 
