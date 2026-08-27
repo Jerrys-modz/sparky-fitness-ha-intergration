@@ -42,6 +42,7 @@ class SparkyFitnessExerciseTrendCard extends HTMLElement {
     this._loading = false;
     this._error = null;
     this._searchValue = "";
+    this._requestId = 0;
   }
 
   setConfig(config) {
@@ -85,6 +86,7 @@ class SparkyFitnessExerciseTrendCard extends HTMLElement {
 
   async _fetchTrend(name) {
     if (!this._hass || !name) return;
+    const requestId = ++this._requestId;
     this._loading = true;
     this._error = null;
     this._currentExercise = name;
@@ -98,15 +100,19 @@ class SparkyFitnessExerciseTrendCard extends HTMLElement {
         return_response: true,
       });
       const response = (result && (result.response ?? result)) || {};
+      if (requestId !== this._requestId) return;
       this._trend = response;
     } catch (err) {
+      if (requestId !== this._requestId) return;
       this._trend = null;
       this._error =
         (err && err.message) ||
         "Couldn't load that exercise's trend (requires integration v0.11.0+).";
     } finally {
-      this._loading = false;
-      this._render();
+      if (requestId === this._requestId) {
+        this._loading = false;
+        this._render();
+      }
     }
   }
 

@@ -342,6 +342,7 @@ def _exercise_one_rm_trend(sessions: list, exercise_id: str) -> list[dict]:
                 "total_reps": total_reps,
             }
         )
+    points.reverse()
     points.sort(key=lambda p: p["date"] or "")
     return points
 
