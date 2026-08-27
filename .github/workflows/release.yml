@@ -1,0 +1,103 @@
+name: Release on version bump
+
+# Cuts a GitHub Release, with an auto-generated changelog, whenever
+# custom_components/sparky_fitness/manifest.json's "version" field changes on
+# main — i.e. whenever a version bump lands (typically via a merged PR).
+#
+# Idempotent by design: it reads the version straight out of manifest.json
+# and skips if a release for that version already exists, so re-running the
+# workflow (or a push that touches manifest.json without changing the
+# version) is a harmless no-op rather than a duplicate/failed release.
+#
+# Hardening notes:
+#  - The job only runs on refs/heads/main, even for a manual workflow_dispatch
+#    (which — unlike the push trigger above — has no branch restriction of
+#    its own and could otherwise be pointed at any branch/tag, publishing a
+#    release from unmerged code).
+#  - Every value that reaches a `run:` shell script is passed through `env:`
+#    and referenced as a shell variable ($VAR), never interpolated directly
+#    via `${{ }}` into the script text — GitHub expands `${{ }}` before Bash
+#    ever sees the string, so a value containing shell metacharacters could
+#    otherwise inject commands into a step running with `contents: write`.
+#  - The version read from manifest.json is validated against a strict X.Y.Z
+#    grammar before it's used for anything, on top of the above.
+#  - Release creation tolerates a race against a concurrent run of this same
+#    workflow: if `gh release create` fails, it re-checks whether the tag now
+#    exists (i.e. the other run won the race) before treating it as a real
+#    failure. The `concurrency` group below makes that race unlikely in the
+#    first place by queueing overlapping runs instead of racing them.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - custom_components/sparky_fitness/manifest.json
+  workflow_dispatch: {} # manual re-run, e.g. to retry a release that failed
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sparky-fitness-release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Read and validate version from manifest.json
+        id: version
+        run: |
+          version=$(jq -r '.version' custom_components/sparky_fitness/manifest.json)
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "Could not read a 'version' field from manifest.json" >&2
+            exit 1
+          fi
+          # Plain X.Y.Z only, so nothing but digits and dots ever reaches a
+          # later shell command or gh argument built from this value.
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "manifest.json version '$version' isn't a plain X.Y.Z version — refusing to release it." >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'tag=v%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this version was already released
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — nothing to do."
+            printf 'exists=true\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'exists=false\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          if gh release create "$TAG" \
+            --repo "$REPO" \
+            --target "$TARGET_SHA" \
+            --title "$TAG" \
+            --generate-notes; then
+            exit 0
+          fi
+          # A concurrent run of this workflow may have published this exact
+          # tag between the "already exists" check above and this step (the
+          # two steps aren't atomic together) — that's the other run winning
+          # the race, not a real failure, so treat "it exists now" as success.
+          echo "release create failed — checking whether a concurrent run already published $TAG" >&2
+          gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1
