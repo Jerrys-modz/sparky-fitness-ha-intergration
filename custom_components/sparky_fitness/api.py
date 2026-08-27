@@ -501,6 +501,17 @@ class SparkyFitnessApiClient:
             raise SparkyFitnessConnectionError(
                 f"Could not reach SparkyFitness at {url}: {err}"
             ) from err
+        except (ValueError, UnicodeDecodeError) as err:
+            # A 200 response with a malformed/non-JSON body raises
+            # json.JSONDecodeError (a ValueError subclass) or
+            # UnicodeDecodeError from resp.json() above, neither of which is
+            # an aiohttp.ClientError — converted here so this client only
+            # ever raises its own two exception types, which callers
+            # (including _optional_request's degrade-to-None handling) rely
+            # on exclusively.
+            raise SparkyFitnessApiError(
+                f"SparkyFitness returned an unreadable response for {path}: {err}"
+            ) from err
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
