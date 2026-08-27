@@ -61,7 +61,21 @@ class SparkyFitnessCustomMeasurementTrendCard extends HTMLElement {
   }
 
   disconnectedCallback() {
-    if (this._timer) clearInterval(this._timer);
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
+  }
+
+  // Without this, a card that gets disconnected and later reconnected to
+  // the DOM (some dashboard layouts do this on tab/view switches) would
+  // never resume polling, since `set hass` only starts the timer once
+  // (on the very first hass assignment) and reconnecting doesn't clear
+  // `_hass`.
+  connectedCallback() {
+    if (this._hass && !this._timer) {
+      this._timer = setInterval(() => this._fetchTrend(), REFRESH_INTERVAL_MS);
+    }
   }
 
   getCardSize() {

@@ -56,7 +56,21 @@ class SparkyFitnessFavoriteRoutesCard extends HTMLElement {
   }
 
   disconnectedCallback() {
-    if (this._timer) clearInterval(this._timer);
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
+  }
+
+  // Without this, a card that gets disconnected and later reconnected to
+  // the DOM (some dashboard layouts do this on tab/view switches) would
+  // never resume polling, since `set hass` only starts the timer once
+  // (on the very first hass assignment) and reconnecting doesn't clear
+  // `_hass`.
+  connectedCallback() {
+    if (this._hass && !this._timer) {
+      this._timer = setInterval(() => this._fetchRoutes(), REFRESH_INTERVAL_MS);
+    }
   }
 
   getCardSize() {
@@ -126,12 +140,17 @@ class SparkyFitnessFavoriteRoutesCard extends HTMLElement {
     `;
   }
 
-  _routeHtml(route) {
+  // Takes an index rather than embedding route.course_name in the HTML
+  // (as a data-* attribute value) — _escape() is only safe for text-node
+  // content, not attribute values (it doesn't encode quote characters), so
+  // a course name containing a `"` could otherwise break out of the
+  // attribute and inject markup into this button.
+  _routeHtml(route, index) {
     const isExpanded = this._expanded === route.course_name;
     const recent = route.recent_activities || [];
     return `
       <div class="route">
-        <button class="route-header" data-course="${this._escape(route.course_name)}">
+        <button class="route-header" data-route-index="${index}">
           <div class="route-main">
             <div class="route-name">${this._escape(route.course_name)}</div>
             <div class="route-sub">
@@ -164,7 +183,7 @@ class SparkyFitnessFavoriteRoutesCard extends HTMLElement {
     } else if (!this._routes || this._routes.length === 0) {
       body = `<div class="empty">No repeated routes yet — run the same route more than once to see it here.</div>`;
     } else {
-      body = `<div class="routes">${this._routes.map((r) => this._routeHtml(r)).join("")}</div>`;
+      body = `<div class="routes">${this._routes.map((r, i) => this._routeHtml(r, i)).join("")}</div>`;
     }
 
     this.shadowRoot.innerHTML = `
@@ -291,8 +310,9 @@ class SparkyFitnessFavoriteRoutesCard extends HTMLElement {
 
     this.shadowRoot.querySelectorAll(".route-header").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const course = btn.getAttribute("data-course");
-        this._expanded = this._expanded === course ? null : course;
+        const route = this._routes?.[Number(btn.dataset.routeIndex)];
+        if (!route) return;
+        this._expanded = this._expanded === route.course_name ? null : route.course_name;
         this._render();
       });
     });

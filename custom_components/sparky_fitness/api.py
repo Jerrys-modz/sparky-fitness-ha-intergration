@@ -109,11 +109,14 @@ personal key).
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import date as date_type
 from typing import Any
 
 import aiohttp
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SparkyFitnessApiError(Exception):
@@ -243,10 +246,15 @@ class SparkyFitnessApiClient:
             ),
             self._request("/api/adaptive-tdee", params={"date": date_str}),
             self._request("/api/water-containers/primary"),
-            self._request("/api/exercise-stats/prs"),
-            self._request("/api/sleep-science/sleep-debt"),
-            self._request("/api/fasting/stats"),
-            self._request(f"/api/fasting/history/range/{window_start}/{date_str}"),
+            # These four are newer additions to SparkyFitness itself, so a
+            # server running an older version may not have them yet — routed
+            # through _optional_request so a 404 there degrades that one
+            # field to empty instead of failing the entire poll (unlike
+            # every other request above, which is expected to always exist).
+            self._optional_request("/api/exercise-stats/prs"),
+            self._optional_request("/api/sleep-science/sleep-debt"),
+            self._optional_request("/api/fasting/stats"),
+            self._optional_request(f"/api/fasting/history/range/{window_start}/{date_str}"),
         )
 
         custom_categories = _as_list(custom_categories)
@@ -425,6 +433,24 @@ class SparkyFitnessApiClient:
         return _as_dict(
             await self._request("/api/health-data", method="POST", json=payload)
         )
+
+    async def _optional_request(
+        self, path: str, params: dict[str, Any] | None = None
+    ) -> Any:
+        """Like _request, but returns None instead of raising when the
+        endpoint errors — for requests that are "nice to have" rather than
+        essential, so a server that doesn't have this particular endpoint
+        yet (an older SparkyFitness version) degrades that one field to
+        empty instead of failing the whole poll. Auth errors still surface
+        normally (async_validate/reauth needs those to actually fire), only
+        SparkyFitnessApiError itself is swallowed here."""
+        try:
+            return await self._request(path, params=params)
+        except SparkyFitnessAuthError:
+            raise
+        except SparkyFitnessApiError as err:
+            _LOGGER.debug("Optional endpoint %s unavailable: %s", path, err)
+            return None
 
     async def _request(
         self,

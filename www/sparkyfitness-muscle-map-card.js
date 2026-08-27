@@ -261,7 +261,7 @@ class SparkyFitnessMuscleMapCard extends HTMLElement {
       this._recoveryDaysSince = {};
       this._error =
         (err && err.message) ||
-        "Couldn't load muscle group data (requires integration v0.10.0+).";
+        "Couldn't load muscle group data (requires integration v0.12.0+ for recovery data).";
     } finally {
       this._loading = false;
       this._render();

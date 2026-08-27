@@ -301,6 +301,13 @@ def _muscle_last_worked(days_data: list) -> dict[str, str]:
                 else [session]
             ) or []
             for exercise in exercises:
+                # A preset session can pass the session-level check above
+                # (any set anywhere completed) while still containing other
+                # exercises that were only planned/prefilled and never
+                # actually done — skip those individually so an unworked
+                # muscle doesn't show as freshly trained.
+                if not _session_is_completed(exercise):
+                    continue
                 muscles = _exercise_muscle_groups(
                     exercise
                 ) + _exercise_secondary_muscle_groups(exercise)
@@ -607,22 +614,20 @@ def _fasting_stats_summary(stats: dict) -> dict:
 
 
 def _fasting_streak(history_range: list, today: date_type) -> dict:
-    """Consecutive days with a completed fast overlapping that calendar day,
-    within the polled trend window — /api/fasting/stats has no streak field
-    of its own, so this derives one the same way logging_streak_days is
-    derived from nutrition_trends. A fast's start/end are real timestamps,
-    not calendar dates, so every day its interval touches counts — an
-    overnight fast credits both the day it started and the day it ended."""
+    """Consecutive days with a completed fast, within the polled trend
+    window — /api/fasting/stats has no streak field of its own, so this
+    derives one the same way logging_streak_days is derived from
+    nutrition_trends. Each completed fast credits only the calendar day it
+    *ended* on (not every day its start/end interval touches): crediting
+    the whole span would double-count a single overnight fast as two days,
+    and could bridge two fasts on non-adjacent days into a false streak."""
     fasted_days: set[str] = set()
     for entry in history_range:
         start = dt_util.parse_datetime(entry.get("start_time") or "")
-        if not start:
+        end = dt_util.parse_datetime(entry.get("end_time") or "")
+        if not start or not end:
             continue
-        end = dt_util.parse_datetime(entry.get("end_time") or "") or start
-        day = start.date()
-        while day <= end.date():
-            fasted_days.add(day.isoformat())
-            day += timedelta(days=1)
+        fasted_days.add(end.date().isoformat())
 
     # Same "don't penalize not having fasted yet today" convention as the
     # nutrition logging streak: start counting from today if it's there,
@@ -658,17 +663,25 @@ def _sleep_debt_summary(sleep_debt: dict) -> dict:
 
 
 def _pr_today_summary(exercise_prs: dict, today: date_type) -> dict:
-    """Which strength exercises (if any) hit a new estimated-1RM PR today,
-    from SparkyFitness's own Personal Records matrix. `exercise_prs` is
-    polled every cycle specifically so this can flip binary_sensor.pr_today
-    on the same poll a PR happens, rather than only when a card calling
+    """Which exercises (if any) hit a new PR today — either an estimated-1RM
+    strength PR or a cardio distance-milestone PR — from SparkyFitness's own
+    Personal Records matrix. `exercise_prs` is polled every cycle
+    specifically so this can flip binary_sensor.pr_today on the same poll a
+    PR happens, rather than only when a card calling
     get_one_rep_maxes/get_cardio_prs happens to be open."""
     today_str = today.isoformat()
     exercises_today = [
         lift.get("exerciseName")
         for lift in (exercise_prs.get("strength1RMs") or [])
         if lift.get("achievedAt") == today_str and lift.get("exerciseName")
+    ] + [
+        record.get("activityName")
+        for record in (exercise_prs.get("cardioPRs") or [])
+        if record.get("achievedAt") == today_str and record.get("activityName")
     ]
+    # dict.fromkeys rather than set(): de-dupes a name appearing in both
+    # lists while preserving the order they were found in.
+    exercises_today = list(dict.fromkeys(exercises_today))
     return {
         "pr_today": len(exercises_today) > 0,
         "pr_exercises_today": exercises_today,
