@@ -61,8 +61,31 @@ its API docs don't fully match the real field names/behavior):
         SparkyFitness's own Personal Records matrix: cardio distance
         milestones plus estimated one-rep-maxes per strength exercise
         (`strength1RMs`, top 10, Epley formula), pre-computed server-side.
-        Used by the get_one_rep_maxes service (personal-records card); only
-        the strength side is surfaced there.
+        Polled every cycle (cheap, single GET) so `binary_sensor.pr_today`
+        can flip on the same poll a PR happens; also backs the
+        get_one_rep_maxes and get_cardio_prs services (personal-records /
+        cardio-records cards), both of which just read the polled copy
+        rather than re-fetching.
+  * GET  /api/exercise-stats/matched-courses
+        Repeated routes/loops (same run done more than once) with a best
+        time and recent activities per course. On-demand only, for the
+        get_favorite_routes service (favorite-routes card) — not part of
+        the regular poll.
+  * GET  /api/sleep-science/sleep-debt
+        SparkyFitness's rolling sleep-debt estimate (current debt, category,
+        7-day trend, payback time) from its MCTQ sleep model — distinct from
+        the plain "last night's hours" sleep_hours sensor above.
+  * GET  /api/fasting/stats
+        All-time fasting totals (completed fasts, total/average duration).
+  * GET  /api/fasting/history/range/{start}/{end}
+        Completed fasts in the trend window, used here to derive a fasting
+        streak (consecutive days with a completed fast) the same way
+        logging_streak_days is derived from nutrition_trends — SparkyFitness's
+        own /fasting/stats has no streak field.
+  * GET  /api/measurements/custom-measurements-range/{categoryId}/{start}/{end}
+        Also used on-demand (beyond the "latest value" use above) by the
+        get_custom_measurement_trend service, for a full trend chart of one
+        custom measurement category rather than just its latest value.
   * POST /api/health-data
         Write-back for `log_water` / `log_weight` services.
         Body: [{"value": <number>, "type": "water"|"weight", "date": "YYYY-MM-DD"}]
@@ -86,11 +109,14 @@ personal key).
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import date as date_type
 from typing import Any
 
 import aiohttp
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SparkyFitnessApiError(Exception):
@@ -128,6 +154,14 @@ class SparkyFitnessData:
     exercise_dashboard_monthly: dict[str, Any] = field(default_factory=dict)
     adaptive_tdee: dict[str, Any] = field(default_factory=dict)
     primary_water_container: dict[str, Any] = field(default_factory=dict)
+    # SparkyFitness's own Personal Records matrix (cardioPRs + strength1RMs) —
+    # polled every cycle so binary_sensor.pr_today can react the same poll a
+    # PR happens; also the source for get_one_rep_maxes/get_cardio_prs.
+    exercise_prs: dict[str, Any] = field(default_factory=dict)
+    sleep_debt: dict[str, Any] = field(default_factory=dict)
+    fasting_stats: dict[str, Any] = field(default_factory=dict)
+    # Completed fasts within the trend window, for deriving a fasting streak.
+    fasting_history_range: list[dict[str, Any]] = field(default_factory=list)
 
 
 class SparkyFitnessApiClient:
@@ -178,6 +212,10 @@ class SparkyFitnessApiClient:
             exercise_dashboard_monthly,
             adaptive_tdee,
             primary_water_container,
+            exercise_prs,
+            sleep_debt,
+            fasting_stats,
+            fasting_history_range,
         ) = await asyncio.gather(
             self._request("/api/daily-summary", params={"date": date_str}),
             self._request(f"/api/measurements/check-in/{date_str}"),
@@ -208,6 +246,15 @@ class SparkyFitnessApiClient:
             ),
             self._request("/api/adaptive-tdee", params={"date": date_str}),
             self._request("/api/water-containers/primary"),
+            # These four are newer additions to SparkyFitness itself, so a
+            # server running an older version may not have them yet — routed
+            # through _optional_request so a 404 there degrades that one
+            # field to empty instead of failing the entire poll (unlike
+            # every other request above, which is expected to always exist).
+            self._optional_request("/api/exercise-stats/prs"),
+            self._optional_request("/api/sleep-science/sleep-debt"),
+            self._optional_request("/api/fasting/stats"),
+            self._optional_request(f"/api/fasting/history/range/{window_start}/{date_str}"),
         )
 
         custom_categories = _as_list(custom_categories)
@@ -231,6 +278,10 @@ class SparkyFitnessApiClient:
             exercise_dashboard_monthly=_as_dict(exercise_dashboard_monthly),
             adaptive_tdee=_as_dict(adaptive_tdee),
             primary_water_container=_as_dict(primary_water_container),
+            exercise_prs=_as_dict(exercise_prs),
+            sleep_debt=_as_dict(sleep_debt),
+            fasting_stats=_as_dict(fasting_stats),
+            fasting_history_range=_as_list(fasting_history_range),
         )
 
     async def _latest_custom_measurements(
@@ -301,12 +352,26 @@ class SparkyFitnessApiClient:
         )
         return _as_list(_as_dict(data).get("sessions"))
 
-    async def async_get_exercise_prs(self) -> dict[str, Any]:
-        """SparkyFitness's own Personal Records matrix — cardio distance
-        milestones plus estimated one-rep-maxes per strength exercise
-        (`strength1RMs`, top 10 by estimated 1RM, computed server-side with
-        the Epley formula). Used by the get_one_rep_maxes service."""
-        return _as_dict(await self._request("/api/exercise-stats/prs"))
+    async def async_get_matched_courses(self) -> list[dict[str, Any]]:
+        """Repeated routes/loops (the same run/ride done more than once), each
+        with a best time and its recent activities — /api/exercise-stats/
+        matched-courses. On-demand only, for the get_favorite_routes service;
+        not part of the regular poll (unlike exercise_prs above, this rarely
+        changes and isn't needed for a binary sensor)."""
+        data = await self._request("/api/exercise-stats/matched-courses")
+        return _as_list(_as_dict(data).get("courses"))
+
+    async def async_get_custom_measurement_range(
+        self, category_id: str, start: str, end: str
+    ) -> list[dict[str, Any]]:
+        """Every logged value for one custom measurement category within a
+        date range — the same endpoint _latest_custom_measurements uses per
+        category for "latest value only", but returning the full range for
+        the get_custom_measurement_trend service's trend chart."""
+        data = await self._request(
+            f"/api/measurements/custom-measurements-range/{category_id}/{start}/{end}"
+        )
+        return _as_list(data)
 
     async def async_search_foods(self, name: str) -> list[dict[str, Any]]:
         """Broad-match food search, used to resolve a name to a food_id for logging."""
@@ -369,6 +434,24 @@ class SparkyFitnessApiClient:
             await self._request("/api/health-data", method="POST", json=payload)
         )
 
+    async def _optional_request(
+        self, path: str, params: dict[str, Any] | None = None
+    ) -> Any:
+        """Like _request, but returns None instead of raising when the
+        endpoint errors — for requests that are "nice to have" rather than
+        essential, so a server that doesn't have this particular endpoint
+        yet (an older SparkyFitness version) degrades that one field to
+        empty instead of failing the whole poll. Auth errors still surface
+        normally (async_validate/reauth needs those to actually fire), only
+        SparkyFitnessApiError itself is swallowed here."""
+        try:
+            return await self._request(path, params=params)
+        except SparkyFitnessAuthError:
+            raise
+        except SparkyFitnessApiError as err:
+            _LOGGER.debug("Optional endpoint %s unavailable: %s", path, err)
+            return None
+
     async def _request(
         self,
         path: str,
@@ -417,6 +500,17 @@ class SparkyFitnessApiClient:
         except aiohttp.ClientError as err:
             raise SparkyFitnessConnectionError(
                 f"Could not reach SparkyFitness at {url}: {err}"
+            ) from err
+        except (ValueError, UnicodeDecodeError) as err:
+            # A 200 response with a malformed/non-JSON body raises
+            # json.JSONDecodeError (a ValueError subclass) or
+            # UnicodeDecodeError from resp.json() above, neither of which is
+            # an aiohttp.ClientError — converted here so this client only
+            # ever raises its own two exception types, which callers
+            # (including _optional_request's degrade-to-None handling) rely
+            # on exclusively.
+            raise SparkyFitnessApiError(
+                f"SparkyFitness returned an unreadable response for {path}: {err}"
             ) from err
 
 

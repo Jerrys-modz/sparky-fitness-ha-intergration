@@ -49,6 +49,12 @@ Per configured server, one device with:
   entities from the weekly ones so you can compare "this week" vs. "this month" at
   a glance; workout streak isn't duplicated here since it's already an all-time
   running count regardless of which window's report it's read from.
+- **`binary_sensor.pr_today`** — on if any strength exercise hit a new
+  estimated one-rep-max today, with an `exercises` attribute listing which
+  ones. Derived from SparkyFitness's own Personal Records matrix (the same
+  data `get_one_rep_maxes`/`get_cardio_prs` below read), polled every cycle
+  so it flips the same poll a PR happens rather than only when a
+  personal-records card happens to be open.
 
 ### Body measurements
 - Weight (kg), body fat (%), BMI — carried forward from your most recently logged
@@ -108,6 +114,19 @@ Per configured server, one device with:
 - **`binary_sensor.fasting_active`** — on while a fast is in progress, with
   `fasting_type`, `start_time`, `target_end_time`, `elapsed_hours`,
   `remaining_hours` attributes
+- **Sleep debt** — SparkyFitness's own rolling sleep-debt estimate from its
+  MCTQ sleep model, distinct from the plain "last night's hours" sleep
+  duration sensor above. Has `category` (`low`/`moderate`/`high`/`critical`),
+  `trend`, `change_7d_hours`, `payback_hours`, and `sleep_need_hours`
+  attributes. Empty until SparkyFitness has enough sleep history logged to
+  compute a baseline.
+- **Fasting total completed** / **fasting average duration** — all-time
+  fasting totals, distinct from `fasting_active` above (which only reflects
+  a fast currently in progress).
+- **Fasting streak** — consecutive days with a completed fast, derived here
+  the same way the nutrition logging streak is (SparkyFitness's own fasting
+  stats don't include a streak) — see Limitations for its day-boundary
+  approximation.
 
 ### Write-back
 - **`button.log_glass_of_water`** — one tap logs your actual preferred water
@@ -147,7 +166,11 @@ Per configured server, one device with:
   neither — fully custom, uncataloged exercises — can't be attributed to
   anything and are silently skipped, the same limitation apps like Hevy have
   for unmatched custom exercises. Reuses the same "actually completed" /
-  auto-sync-exclusion rules as `workout_logged_today`.
+  auto-sync-exclusion rules as `workout_logged_today`. Pass
+  `include_recovery: true` (off by default) to also get a
+  `recovery_days_since` map of days-since-last-worked per muscle group,
+  looking back further than `days` when needed — see the muscle-map card
+  below, which enables this.
 - **`sparky_fitness.get_exercise_trend`** service — read-only, on-demand
   one-rep-max (1RM) trend for a single exercise, for the exercise-trend card
   below. Resolves the given `name` to an exercise the same way `log_exercise`
@@ -162,6 +185,22 @@ Per configured server, one device with:
   matrix (`/api/exercise-stats/prs`) — up to 10 exercises, ranked by
   estimated 1RM, using SparkyFitness's own Epley-formula calculation rather
   than a reimplementation, so the numbers always match SparkyFitness itself.
+  Reads the copy already polled every cycle (see `binary_sensor.pr_today`
+  above) rather than re-fetching live.
+- **`sparky_fitness.get_cardio_prs`** service — read-only cardio
+  distance-milestone personal records (1k, 1 mile, 5k, 10k, 15k, half/full
+  marathon — best time per sport group), for the cardio-records card below.
+  The cardio half of the same Personal Records matrix `get_one_rep_maxes`
+  reads the strength half of; also reads the polled copy.
+- **`sparky_fitness.get_favorite_routes`** service — read-only repeated
+  route/loop stats (the same run/ride done more than once, with a best time
+  and its recent activities) for the favorite-routes card below, from
+  SparkyFitness's own matched-courses report.
+- **`sparky_fitness.get_custom_measurement_trend`** service — read-only,
+  on-demand full trend (not just "latest value") for one custom measurement
+  category, for the custom-measurement-trend card below. `category` matches
+  a category's id, display name, or name (case-insensitive); `days`
+  (default 30) controls how far back to fetch.
 
 ### Chat card (optional)
 
@@ -184,7 +223,7 @@ steps (copy to `www/`, register as a dashboard resource, add the card).
 
 ### Other dashboard cards (optional)
 
-Eight more small Lovelace cards ship alongside the chat card, each in its own
+Eleven more small Lovelace cards ship alongside the chat card, each in its own
 file with full install instructions in its header comment:
 
 - **`sparkyfitness-summary-card.js`** — at-a-glance card for today: calories
@@ -208,11 +247,12 @@ file with full install instructions in its header comment:
   prefix.
 - **`sparkyfitness-muscle-map-card.js`** — a Hevy-style "Body distribution"
   view: front/back body diagrams with worked muscle groups highlighted in
-  blue, a sets-per-muscle-group list below, and prev/next week navigation.
-  Calls the `get_muscle_group_summary` service above once per week shown.
-  Like the measurements card, it needs no `entity_prefix` — it's entirely
-  service-driven. The body diagram is a stylized schematic (simple shapes,
-  not an anatomical render) covering the 17 discrete muscle groups
+  blue, a sets-per-muscle-group list below (with a "Xd ago" / "Today"
+  recovery tag per muscle, via `include_recovery`), and prev/next week
+  navigation. Calls the `get_muscle_group_summary` service above once per
+  week shown. Like the measurements card, it needs no `entity_prefix` — it's
+  entirely service-driven. The body diagram is a stylized schematic (simple
+  shapes, not an anatomical render) covering the 17 discrete muscle groups
   SparkyFitness's catalog data can resolve to; cardio- and full-body-only
   exercises have no single region to highlight and aren't represented.
 - **`sparkyfitness-personal-records-card.js`** — a ranked list of your
@@ -226,6 +266,19 @@ file with full install instructions in its header comment:
   `get_exercise_trend` service above. Also entirely service-driven — no
   `entity_prefix` needed, though an optional `exercise:` config option
   preloads a default exercise instead of requiring a search on first load.
+- **`sparkyfitness-cardio-records-card.js`** — a ranked list of your best
+  times per distance milestone (1k through marathon, by sport group), via
+  the `get_cardio_prs` service above. The cardio counterpart to the
+  personal-records card; entirely service-driven, no `entity_prefix` needed.
+- **`sparkyfitness-favorite-routes-card.js`** — routes/loops you've repeated,
+  each with a best time and (tap to expand) its recent activities, via the
+  `get_favorite_routes` service above. Entirely service-driven.
+- **`sparkyfitness-custom-measurement-trend-card.js`** — a small line chart
+  of one custom measurement category over time (the same treatment the
+  weight card gives weight), via the `get_custom_measurement_trend` service
+  above. Takes a required `category:` config option (a category's id,
+  display name, or name) instead of `entity_prefix`, since it's entirely
+  service-driven; only numeric categories can be charted.
 
 The other four (plus the chat card) take an `entity_prefix` config option — the
 shared middle part of your entity IDs (e.g. `sparkyfitness_fitness_jerrybrooke_com`
@@ -300,15 +353,19 @@ without needing to remove and re-add the integration.
 Per poll: `daily-summary`, `check-in/{date}`, `check-in/latest-on-or-before-date`,
 `check-in-measurements-range`, `mini-nutrition-trends`, `sleep`, `mood/date/{date}`,
 `fasting/current`, `custom-categories` (+ one `custom-measurements-range` call per
-custom category you have), `exercise-dashboard`, `adaptive-tdee`, and
-`water-containers/primary` — all read-only GETs. On-demand
-GETs power `get_exercise_trend` (`v2/exercise-entries/history?exerciseId=`,
-already server-filtered to one exercise) and `get_one_rep_maxes`
-(`exercise-stats/prs`, SparkyFitness's own pre-computed Personal Records
-matrix). On-demand POSTs power the write-back services: `health-data`
-(water/weight), `food-entries` (log_food, after a `foods/search`), and
-`exercise-entries` (log_exercise, after an `exercises/search`). Everything is
-authenticated with `Authorization: Bearer <API key>`.
+custom category you have), `exercise-dashboard`, `adaptive-tdee`,
+`water-containers/primary`, `exercise-stats/prs` (for `binary_sensor.pr_today`
+and the `get_one_rep_maxes`/`get_cardio_prs` services), `sleep-science/sleep-debt`,
+`fasting/stats`, and `fasting/history/range/{start}/{end}` — all read-only GETs.
+On-demand GETs power `get_exercise_trend` (`v2/exercise-entries/history?exerciseId=`,
+already server-filtered to one exercise), `get_favorite_routes`
+(`exercise-stats/matched-courses`), and `get_custom_measurement_trend` (a
+`custom-measurements-range` call over a wider date range than the per-poll
+"latest value" one above). On-demand POSTs power the write-back services:
+`health-data` (water/weight), `food-entries` (log_food, after a
+`foods/search`), and `exercise-entries` (log_exercise, after an
+`exercises/search`). Everything is authenticated with
+`Authorization: Bearer <API key>`.
 
 Reading or writing your own data never requires special API key permission scopes —
 SparkyFitness always allows a key to act on the data of the account it belongs to.
@@ -318,8 +375,10 @@ SparkyFitness always allows a key to act on the data of the account it belongs t
 - Only "today" (plus the trend window for averages/weight-change/custom
   measurements) is polled — no full historical backfill or Home Assistant
   long-term statistics import.
-- Sleep stages, detailed fasting history/stats, and mood display preferences
-  aren't surfaced — only the "current/latest" snapshot of each.
+- Sleep stages and mood display preferences aren't surfaced — mood is still
+  only the "current/latest" snapshot. Sleep debt/fasting totals-and-streak
+  are now surfaced (see above), but SparkyFitness's deeper sleep-science
+  features (chronotype, energy curve, MCTQ baseline) aren't.
 - Custom measurement sensors are discovered once at startup; a newly created
   category needs a manual reload to appear.
 - If you're on an active SparkyFitness workout plan, the **weekly exercise stats**
@@ -345,6 +404,21 @@ SparkyFitness always allows a key to act on the data of the account it belongs t
   produces a 1RM estimate. `get_one_rep_maxes` is additionally capped at the
   top 10 exercises by estimated 1RM, since that's the size SparkyFitness's
   own Personal Records endpoint returns.
+- `get_muscle_group_summary`'s `include_recovery` only looks back as far as
+  the larger of `days` or its own default lookback (21 days) — a muscle last
+  worked further back than that shows no recovery tag at all (treat that as
+  "no recent data," not "never trained"), rather than this integration
+  fetching an unbounded amount of daily-summary history to find out.
+- The fasting streak is derived from completed fasts' start/end timestamps
+  by calendar day, not a real per-user-timezone day boundary — SparkyFitness's
+  own `/fasting/stats` has no streak field to match against, so this is an
+  approximation (same caveat as the exercise-dashboard-based weekly stats
+  above, just for a different endpoint).
+- Cardio PRs (`get_cardio_prs`) use SparkyFitness's own distance-milestone
+  bands (1k/mile/5k/10k/15k/half/marathon), which are running distances —
+  SparkyFitness itself notes these aren't yet idiomatic for cycling (e.g. a
+  40 km time trial) or swimming (pool splits), so a Ride or Swim section may
+  show a running-shaped band instead of a sport-appropriate one.
 
 ## Troubleshooting
 

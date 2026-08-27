@@ -16,7 +16,7 @@ SparkyFitness's API key creation flow has no way to mint a narrower
 from __future__ import annotations
 
 import logging
-from datetime import date as date_type
+from datetime import date as date_type, timedelta
 
 import voluptuous as vol
 
@@ -28,9 +28,11 @@ from .api import SparkyFitnessApiError
 from .const import DOMAIN
 from .coordinator import (
     SparkyFitnessCoordinator,
+    _MUSCLE_RECOVERY_LOOKBACK_DAYS,
     _exercise_one_rm_trend,
     _get,
     _muscle_group_summary,
+    _muscle_recovery_days,
     _summarize_exercise_sessions,
 )
 
@@ -48,6 +50,9 @@ SERVICE_GET_EXERCISE_HISTORY = "get_exercise_history"
 SERVICE_GET_MUSCLE_GROUP_SUMMARY = "get_muscle_group_summary"
 SERVICE_GET_EXERCISE_TREND = "get_exercise_trend"
 SERVICE_GET_ONE_REP_MAXES = "get_one_rep_maxes"
+SERVICE_GET_CARDIO_PRS = "get_cardio_prs"
+SERVICE_GET_FAVORITE_ROUTES = "get_favorite_routes"
+SERVICE_GET_CUSTOM_MEASUREMENT_TREND = "get_custom_measurement_trend"
 
 ATTR_VALUE = "value"
 ATTR_CONFIG_ENTRY_ID = "config_entry_id"
@@ -64,6 +69,8 @@ ATTR_EXERCISE_ID = "exercise_id"
 ATTR_DAYS = "days"
 ATTR_END_DATE = "end_date"
 ATTR_SESSIONS = "sessions"
+ATTR_INCLUDE_RECOVERY = "include_recovery"
+ATTR_CATEGORY = "category"
 
 _ALL_SERVICES = (
     SERVICE_LOG_WATER,
@@ -78,6 +85,9 @@ _ALL_SERVICES = (
     SERVICE_GET_MUSCLE_GROUP_SUMMARY,
     SERVICE_GET_EXERCISE_TREND,
     SERVICE_GET_ONE_REP_MAXES,
+    SERVICE_GET_CARDIO_PRS,
+    SERVICE_GET_FAVORITE_ROUTES,
+    SERVICE_GET_CUSTOM_MEASUREMENT_TREND,
 )
 
 _LOG_VALUE_SCHEMA = vol.Schema(
@@ -160,6 +170,7 @@ _GET_MUSCLE_GROUP_SUMMARY_SCHEMA = vol.Schema(
             vol.Coerce(int), vol.Range(min=1, max=90)
         ),
         vol.Optional(ATTR_END_DATE): _iso_date,
+        vol.Optional(ATTR_INCLUDE_RECOVERY, default=False): bool,
         vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
     }
 )
@@ -176,6 +187,28 @@ _GET_EXERCISE_TREND_SCHEMA = vol.Schema(
 
 _GET_ONE_REP_MAXES_SCHEMA = vol.Schema(
     {
+        vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
+_GET_CARDIO_PRS_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
+_GET_FAVORITE_ROUTES_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
+_GET_CUSTOM_MEASUREMENT_TREND_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_CATEGORY): str,
+        vol.Optional(ATTR_DAYS, default=30): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=90)
+        ),
         vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
     }
 )
@@ -511,29 +544,44 @@ async def _handle_get_muscle_group_summary(
     attributed to muscle groups — in short: primary muscles get full credit,
     secondary muscles get half credit, and exercises with no muscle/category
     data from SparkyFitness's catalog are skipped since there's nothing to
-    attribute them to."""
+    attribute them to.
+
+    `include_recovery` (off by default, so existing automations don't
+    silently start fetching more days than they asked for) additionally
+    computes days-since-last-worked per muscle group, looking back at least
+    _MUSCLE_RECOVERY_LOOKBACK_DAYS regardless of `days` — a muscle can be
+    "resting" well outside a single displayed week."""
     coordinator = _resolve_coordinator(hass, call)
     days = call.data[ATTR_DAYS]
     end_date = call.data.get(ATTR_END_DATE) or dt_util.now().date()
+    include_recovery = call.data[ATTR_INCLUDE_RECOVERY]
 
+    fetch_days = max(days, _MUSCLE_RECOVERY_LOOKBACK_DAYS) if include_recovery else days
     try:
         raw_days = await coordinator.client.async_get_daily_summaries_range(
-            end_date, days
+            end_date, fetch_days
         )
     except SparkyFitnessApiError as err:
         raise ServiceValidationError(
             f"SparkyFitness muscle group summary fetch failed: {err}"
         ) from err
 
-    muscle_groups = _muscle_group_summary(raw_days)
-    start_date = raw_days[-1]["date"] if raw_days else end_date.isoformat()
-    return {
+    # raw_days is most-recent-first, so the display window is always its
+    # first `days` entries regardless of how much extra was fetched for
+    # recovery — identical to the pre-recovery behavior when it's off.
+    display_days = raw_days[:days]
+    muscle_groups = _muscle_group_summary(display_days)
+    start_date = display_days[-1]["date"] if display_days else end_date.isoformat()
+    response = {
         "muscle_groups": muscle_groups,
         "total_sets": round(sum(muscle_groups.values()), 1),
         "start_date": start_date,
         "end_date": end_date.isoformat(),
         "days": days,
     }
+    if include_recovery:
+        response["recovery_days_since"] = _muscle_recovery_days(raw_days, end_date)
+    return response
 
 
 async def _handle_get_exercise_trend(hass: HomeAssistant, call: ServiceCall) -> ServiceResponse:
@@ -605,17 +653,13 @@ async def _handle_get_one_rep_maxes(hass: HomeAssistant, call: ServiceCall) -> S
     """Read-only current estimated one-rep-maxes across all strength
     exercises, for the personal-records dashboard card — straight from
     SparkyFitness's own Personal Records matrix (/api/exercise-stats/prs).
+    Reads the copy already polled every cycle into coordinator.data (see
+    coordinator.py) rather than re-fetching live — it also backs
+    binary_sensor.pr_today, so it's never more than one poll interval stale.
     Only the strength side (`strength1RMs`, up to 10 exercises) is surfaced
-    here; the endpoint's cardio distance-milestone PRs use a different shape
-    and aren't part of "one rep max."""
+    here; see get_cardio_prs for the cardio distance-milestone half."""
     coordinator = _resolve_coordinator(hass, call)
-    try:
-        prs = await coordinator.client.async_get_exercise_prs()
-    except SparkyFitnessApiError as err:
-        raise ServiceValidationError(
-            f"SparkyFitness personal records fetch failed: {err}"
-        ) from err
-
+    prs = (coordinator.data or {}).get("_raw_exercise_prs") or {}
     lifts = [
         {
             "exercise_name": lift.get("exerciseName"),
@@ -627,6 +671,127 @@ async def _handle_get_one_rep_maxes(hass: HomeAssistant, call: ServiceCall) -> S
         for lift in (prs.get("strength1RMs") or [])
     ]
     return {"lifts": lifts}
+
+
+async def _handle_get_cardio_prs(hass: HomeAssistant, call: ServiceCall) -> ServiceResponse:
+    """Read-only cardio distance-milestone personal records (1k, 1 mile, 5k,
+    10k, 15k, half/full marathon — best time per sport group), for the
+    cardio-records dashboard card. The cardio half of the same Personal
+    Records matrix get_one_rep_maxes reads the strength half of, so it reads
+    the same polled coordinator.data copy rather than re-fetching."""
+    coordinator = _resolve_coordinator(hass, call)
+    prs = (coordinator.data or {}).get("_raw_exercise_prs") or {}
+    records = [
+        {
+            "sport": r.get("sport"),
+            "sport_group": r.get("sportGroup"),
+            "distance_standard": r.get("distanceStandard"),
+            "label": r.get("label"),
+            "time": r.get("formattedTime"),
+            "pace": r.get("formattedPace"),
+            "activity_name": r.get("activityName"),
+            "achieved_at": r.get("achievedAt"),
+        }
+        for r in (prs.get("cardioPRs") or [])
+    ]
+    return {"records": records}
+
+
+async def _handle_get_favorite_routes(hass: HomeAssistant, call: ServiceCall) -> ServiceResponse:
+    """Read-only repeated-route/loop stats (the same run/ride done more than
+    once, with a best time and its recent activities) for the
+    favorite-routes dashboard card — /api/exercise-stats/matched-courses.
+    On-demand only, like get_exercise_trend; not part of the regular poll,
+    since unlike exercise_prs this doesn't back any sensor."""
+    coordinator = _resolve_coordinator(hass, call)
+    try:
+        courses = await coordinator.client.async_get_matched_courses()
+    except SparkyFitnessApiError as err:
+        raise ServiceValidationError(
+            f"SparkyFitness favorite routes fetch failed: {err}"
+        ) from err
+
+    routes = [
+        {
+            "course_name": c.get("courseName"),
+            "category": c.get("category"),
+            "activity_count": c.get("activityCount"),
+            "avg_distance": c.get("avgDistanceFormatted"),
+            "best_time_seconds": c.get("bestTimeSeconds"),
+            "best_pace": c.get("bestPaceFormatted"),
+            "recent_activities": [
+                {
+                    "date": a.get("entryDate"),
+                    "duration_minutes": a.get("durationMinutes"),
+                    "pace": a.get("avgPaceFormatted"),
+                    "avg_heart_rate": a.get("avgHeartRate"),
+                }
+                for a in (c.get("recentActivities") or [])
+            ],
+        }
+        for c in courses
+    ]
+    return {"routes": routes}
+
+
+async def _handle_get_custom_measurement_trend(
+    hass: HomeAssistant, call: ServiceCall
+) -> ServiceResponse:
+    """Read-only, on-demand full trend (not just the "latest value" the
+    custom-measurement sensor carries) for one custom measurement category,
+    for the custom-measurement-trend dashboard card. `category` matches a
+    category's id, display_name, or name (case-insensitive) — check
+    Developer Tools -> States on that category's sensor if unsure which
+    name to use."""
+    coordinator = _resolve_coordinator(hass, call)
+    query = call.data[ATTR_CATEGORY]
+    days = call.data[ATTR_DAYS]
+
+    categories = (coordinator.data or {}).get("custom_categories") or []
+    match = next((c for c in categories if c.get("id") == query), None)
+    if match is None:
+        query_lower = query.strip().lower()
+        match = next(
+            (
+                c
+                for c in categories
+                if (c.get("display_name") or "").strip().lower() == query_lower
+                or (c.get("name") or "").strip().lower() == query_lower
+            ),
+            None,
+        )
+    if match is None:
+        raise ServiceValidationError(
+            f"No custom measurement category found matching '{query}'."
+        )
+
+    end_date = dt_util.now().date()
+    start_date = end_date - timedelta(days=days)
+    try:
+        entries = await coordinator.client.async_get_custom_measurement_range(
+            match["id"], start_date.isoformat(), end_date.isoformat()
+        )
+    except SparkyFitnessApiError as err:
+        raise ServiceValidationError(
+            f"SparkyFitness custom measurement trend fetch failed: {err}"
+        ) from err
+
+    points = sorted(
+        (
+            {"date": e.get("date"), "value": e.get("value")}
+            for e in entries
+            if e.get("value") is not None
+        ),
+        key=lambda p: p["date"] or "",
+    )
+    return {
+        "category_id": match["id"],
+        "category_name": match.get("display_name") or match.get("name"),
+        "measurement_type": match.get("measurement_type"),
+        "points": points,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+    }
 
 
 async def async_setup_services(hass: HomeAssistant) -> None:
@@ -750,6 +915,39 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_GET_ONE_REP_MAXES,
         handle_get_one_rep_maxes,
         schema=_GET_ONE_REP_MAXES_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+    async def handle_get_cardio_prs(call: ServiceCall) -> ServiceResponse:
+        return await _handle_get_cardio_prs(hass, call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_CARDIO_PRS,
+        handle_get_cardio_prs,
+        schema=_GET_CARDIO_PRS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+    async def handle_get_favorite_routes(call: ServiceCall) -> ServiceResponse:
+        return await _handle_get_favorite_routes(hass, call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_FAVORITE_ROUTES,
+        handle_get_favorite_routes,
+        schema=_GET_FAVORITE_ROUTES_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+    async def handle_get_custom_measurement_trend(call: ServiceCall) -> ServiceResponse:
+        return await _handle_get_custom_measurement_trend(hass, call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_CUSTOM_MEASUREMENT_TREND,
+        handle_get_custom_measurement_trend,
+        schema=_GET_CUSTOM_MEASUREMENT_TREND_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
 

@@ -387,6 +387,41 @@ SENSOR_DESCRIPTIONS: tuple[SparkyFitnessSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:chart-bell-curve-cumulative",
     ),
+    # --- Sleep debt (SparkyFitness's MCTQ-based rolling estimate, distinct
+    # from the plain "last night's hours" sleep_hours above) ---
+    SparkyFitnessSensorDescription(
+        key="sleep_debt",
+        value_key="sleep_debt_hours",
+        translation_key="sleep_debt",
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:sleep-off",
+    ),
+    # --- All-time fasting stats + streak (distinct from fasting_active,
+    # which only reflects the currently in-progress fast, if any) ---
+    SparkyFitnessSensorDescription(
+        key="fasting_total_completed",
+        value_key="fasting_total_completed",
+        translation_key="fasting_total_completed",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:timer-check-outline",
+    ),
+    SparkyFitnessSensorDescription(
+        key="fasting_avg_duration",
+        value_key="fasting_avg_duration_hours",
+        translation_key="fasting_avg_duration",
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:timer-sand",
+    ),
+    SparkyFitnessSensorDescription(
+        key="fasting_streak",
+        value_key="fasting_streak_days",
+        translation_key="fasting_streak",
+        native_unit_of_measurement=UnitOfTime.DAYS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:calendar-check",
+    ),
 )
 
 
@@ -486,6 +521,16 @@ class SparkyFitnessSensor(CoordinatorEntity[SparkyFitnessCoordinator], SensorEnt
             )
         if self.entity_description.key == "workout_streak":
             attrs["weekly_frequency"] = self.coordinator.data.get("weekly_frequency")
+        if self.entity_description.key == "sleep_debt":
+            attrs["category"] = self.coordinator.data.get("sleep_debt_category")
+            attrs["sleep_need_hours"] = self.coordinator.data.get("sleep_need_hours")
+            attrs["trend"] = self.coordinator.data.get("sleep_debt_trend")
+            attrs["change_7d_hours"] = self.coordinator.data.get(
+                "sleep_debt_change_7d"
+            )
+            attrs["payback_hours"] = self.coordinator.data.get(
+                "sleep_debt_payback_hours"
+            )
         if self.entity_description.key == "adaptive_tdee":
             attrs["confidence"] = self.coordinator.data.get(
                 "adaptive_tdee_confidence"

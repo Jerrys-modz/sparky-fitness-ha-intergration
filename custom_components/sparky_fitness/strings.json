@@ -83,11 +83,16 @@
       "monthly_workouts": { "name": "Monthly workouts" },
       "monthly_volume": { "name": "Monthly volume" },
       "monthly_reps": { "name": "Monthly reps" },
-      "adaptive_tdee": { "name": "Adaptive TDEE" }
+      "adaptive_tdee": { "name": "Adaptive TDEE" },
+      "sleep_debt": { "name": "Sleep debt" },
+      "fasting_total_completed": { "name": "Fasting total completed" },
+      "fasting_avg_duration": { "name": "Fasting average duration" },
+      "fasting_streak": { "name": "Fasting streak" }
     },
     "binary_sensor": {
       "workout_logged_today": { "name": "Workout logged today" },
-      "fasting_active": { "name": "Fasting active" }
+      "fasting_active": { "name": "Fasting active" },
+      "pr_today": { "name": "PR today" }
     },
     "button": {
       "log_water_glass": { "name": "Log glass of water" }
@@ -272,6 +277,10 @@
           "name": "End date",
           "description": "Last day of the window (YYYY-MM-DD). Defaults to today."
         },
+        "include_recovery": {
+          "name": "Include recovery",
+          "description": "Also compute days-since-last-worked per muscle group."
+        },
         "config_entry_id": {
           "name": "SparkyFitness server",
           "description": "Only needed if you have more than one SparkyFitness server configured."
@@ -300,6 +309,44 @@
       "name": "Get one-rep maxes",
       "description": "Read-only current estimated one-rep-maxes across all strength exercises, for the personal-records dashboard card.",
       "fields": {
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "get_cardio_prs": {
+      "name": "Get cardio PRs",
+      "description": "Read-only cardio distance-milestone personal records, for the cardio-records dashboard card.",
+      "fields": {
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "get_favorite_routes": {
+      "name": "Get favorite routes",
+      "description": "Read-only repeated-route/loop stats for the favorite-routes dashboard card.",
+      "fields": {
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
+    "get_custom_measurement_trend": {
+      "name": "Get custom measurement trend",
+      "description": "Read-only, on-demand full trend for one custom measurement category, for the custom-measurement-trend dashboard card.",
+      "fields": {
+        "category": {
+          "name": "Category",
+          "description": "A custom measurement category's id, display name, or name."
+        },
+        "days": {
+          "name": "Days",
+          "description": "How many days back to fetch."
+        },
         "config_entry_id": {
           "name": "SparkyFitness server",
           "description": "Only needed if you have more than one SparkyFitness server configured."
