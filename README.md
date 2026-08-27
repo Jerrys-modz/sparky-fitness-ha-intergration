@@ -322,6 +322,17 @@ SparkyFitness always allows a key to act on the data of the account it belongs t
   top 10 exercises by estimated 1RM, since that's the size SparkyFitness's
   own Personal Records endpoint returns.
 
+## Releasing (maintainers)
+
+Bump `version` in `custom_components/sparky_fitness/manifest.json` and merge that
+to `main`. A workflow (`.github/workflows/release.yml`) picks up the change and
+publishes a GitHub Release for `v<version>` with an auto-generated changelog (a
+"What's Changed" list plus a full-diff link, GitHub's standard `--generate-notes`
+output) -- no separate tagging step needed. It's idempotent: if a release for that
+version already exists (e.g. manifest.json changed without a version bump), the
+workflow just skips rather than erroring or duplicating. `workflow_dispatch` is
+also enabled for a manual re-run if a release ever needs retrying.
+
 ## Troubleshooting
 
 - **"The API key was rejected"** during setup, or a reauth prompt appears later:

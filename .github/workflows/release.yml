@@ -1,0 +1,62 @@
+name: Release on version bump
+
+# Cuts a GitHub Release, with an auto-generated changelog, whenever
+# custom_components/sparky_fitness/manifest.json's "version" field changes on
+# main — i.e. whenever a version bump lands (typically via a merged PR).
+#
+# Idempotent by design: it reads the version straight out of manifest.json
+# and skips if a release for that version already exists, so re-running the
+# workflow (or a push that touches manifest.json without changing the
+# version) is a harmless no-op rather than a duplicate/failed release.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - custom_components/sparky_fitness/manifest.json
+  workflow_dispatch: {} # manual re-run, e.g. to retry a release that failed
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Read version from manifest.json
+        id: version
+        run: |
+          version=$(jq -r '.version' custom_components/sparky_fitness/manifest.json)
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "Could not read a 'version' field from manifest.json" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this version was already released
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${{ steps.version.outputs.tag }} already exists — nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes
