@@ -292,6 +292,27 @@ configured prefix first and automatically falls back to the bare
 `sparkyfitness_` prefix per-entity if that specific one isn't found, so a mixed
 install like that still works without extra configuration.
 
+### Automation blueprints (optional)
+
+Two ready-made automation blueprints live in the repo's `blueprints/automation/`
+folder (one level up from this integration, alongside `www/`). Import one via
+**Settings → Automations & Scenes → Blueprints → Import Blueprint**, pasting the
+blueprint's raw GitHub URL, or copy the file manually to
+`<config>/blueprints/automation/Jerrys-modz/`. Both need Home Assistant 2024.10+
+and the entities they reference (integration v0.12.0+):
+
+- **`sparky_fitness_pr_notification.yaml`** — notifies you the moment
+  `binary_sensor.pr_today` turns on, i.e. as soon as today's workout sets a new
+  estimated one-rep-max or cardio personal record, naming which exercises hit
+  a new record.
+- **`sparky_fitness_fasting_streak_reminder.yaml`** — a daily reminder, at a
+  time you pick, if `sensor.fasting_streak` is above zero but
+  `binary_sensor.fasting_active` is still off — you have a streak going but
+  haven't started today's fast yet.
+
+Both let you pick the notify target (person, device, or notify group) and
+customize the title/message text.
+
 All write-back calls use the same Personal API Key already configured for reading —
 there's no separate "write" key to set up (SparkyFitness's own key-creation endpoint
 has no way to mint a narrower one anyway). If you configure more than one

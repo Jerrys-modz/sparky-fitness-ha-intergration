@@ -1,0 +1,84 @@
+blueprint:
+  name: SparkyFitness - Fasting Streak At Risk Reminder
+  description: >-
+    Sends a daily reminder if you have an active fasting streak
+    (`sensor.fasting_streak`, added in SparkyFitness integration v0.12.0) but
+    haven't started today's fast yet (`binary_sensor.fasting_active` is off).
+    Runs once a day at a time you pick -- pick a time late enough in the day
+    that "haven't started yet" is actually meaningful for your routine.
+  domain: automation
+  author: Jerrys-modz
+  source_url: https://github.com/Jerrys-modz/sparky-fitness-ha-intergration/blob/main/blueprints/automation/sparky_fitness_fasting_streak_reminder.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    fasting_active_sensor:
+      name: Fasting Active sensor
+      description: The SparkyFitness "fasting active" binary sensor.
+      selector:
+        entity:
+          domain: binary_sensor
+          integration: sparky_fitness
+
+    streak_sensor:
+      name: Fasting Streak sensor
+      description: The SparkyFitness "fasting streak" sensor (days).
+      selector:
+        entity:
+          domain: sensor
+          integration: sparky_fitness
+
+    reminder_time:
+      name: Reminder time
+      description: What time of day to check and remind, if the streak is at risk.
+      default: "20:00:00"
+      selector:
+        time: {}
+
+    notify_target:
+      name: Notify target
+      description: Who/what should receive the reminder (a person, device, or notify group).
+      selector:
+        target: {}
+
+    title:
+      name: Notification title
+      description: Title of the notification.
+      default: "⏳ Fasting streak at risk"
+      selector:
+        text: {}
+
+    message:
+      name: Notification message
+      description: >-
+        The notification body. `{{ streak_days }}` is available as the
+        current streak length in days.
+      default: "You haven't started today's fast yet -- your {{ streak_days }}-day streak is on the line."
+      selector:
+        text:
+          multiline: true
+
+variables:
+  streak_sensor: !input streak_sensor
+  streak_days: "{{ states(streak_sensor) }}"
+
+mode: single
+
+triggers:
+  - trigger: time
+    at: !input reminder_time
+
+conditions:
+  - condition: state
+    entity_id: !input fasting_active_sensor
+    state: "off"
+  - condition: numeric_state
+    entity_id: !input streak_sensor
+    above: 0
+
+actions:
+  - action: notify.send_message
+    target: !input notify_target
+    data:
+      title: !input title
+      message: !input message

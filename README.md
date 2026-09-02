@@ -332,6 +332,27 @@ accurate -- HA will display it in lb automatically if your profile is set to
 imperial. Custom measurement values have no unit info from the API, so none is
 set -- check what unit you used when creating the category in SparkyFitness.
 
+## Automation blueprints (optional)
+
+Two ready-made automation blueprints live in this repo's `blueprints/automation/`
+folder. Import one via **Settings -> Automations & Scenes -> Blueprints -> Import
+Blueprint**, pasting the blueprint's raw GitHub URL, or copy the file manually to
+`<config>/blueprints/automation/Jerrys-modz/`. Both require Home Assistant
+2024.10 or later (for the `triggers:`/`conditions:`/`actions:` syntax) and the
+integration entities they reference (v0.12.0+).
+
+- **`sparky_fitness_pr_notification.yaml`** -- notifies you the moment
+  `binary_sensor.pr_today` turns on, i.e. as soon as today's workout sets a new
+  estimated one-rep-max or cardio personal record, listing which exercises hit
+  a new record.
+- **`sparky_fitness_fasting_streak_reminder.yaml`** -- a daily reminder, at a
+  time you pick, if `sensor.fasting_streak` is greater than zero but
+  `binary_sensor.fasting_active` is still off, i.e. you have a streak going but
+  haven't started today's fast yet.
+
+Both let you pick the notify target (person, device, or notify group) and
+customize the title/message text.
+
 ## How it talks to SparkyFitness
 
 Per poll: `daily-summary`, `check-in/{date}`, `check-in/latest-on-or-before-date`,
