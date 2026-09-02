@@ -3,9 +3,12 @@ blueprint:
   description: >-
     Sends a daily reminder if you have an active fasting streak
     (`sensor.fasting_streak`, added in SparkyFitness integration v0.12.0) but
-    haven't started today's fast yet (`binary_sensor.fasting_active` is off).
-    Runs once a day at a time you pick -- pick a time late enough in the day
-    that "haven't started yet" is actually meaningful for your routine.
+    haven't started today's fast yet -- `binary_sensor.fasting_active` is off
+    AND today's fast hasn't already completed (requires integration v0.13.0+
+    for the streak sensor's `completed_today` attribute; older versions just
+    skip the reminder instead of risking a false one). Runs once a day at a
+    time you pick -- pick a time late enough in the day that "haven't
+    started yet" is actually meaningful for your routine.
   domain: automation
   author: Jerrys-modz
   source_url: https://github.com/Jerrys-modz/sparky-fitness-ha-intergration/blob/main/blueprints/automation/sparky_fitness_fasting_streak_reminder.yaml
@@ -37,9 +40,11 @@ blueprint:
 
     notify_target:
       name: Notify target
-      description: Who/what should receive the reminder (a person, device, or notify group).
+      description: Who/what should receive the reminder (a device or area with a notify entity, or a notify group).
       selector:
-        target: {}
+        target:
+          entity:
+            domain: notify
 
     title:
       name: Notification title
@@ -75,6 +80,15 @@ conditions:
   - condition: numeric_state
     entity_id: !input streak_sensor
     above: 0
+  # binary_sensor.fasting_active also reads "off" once today's fast has
+  # already completed -- without this, a streak kept alive by an early
+  # finished fast would still get a "you haven't started yet" reminder.
+  # Requires integration v0.13.0+ for the streak sensor's completed_today
+  # attribute; on an older version this template evaluates to `None`,
+  # which `not` treats as truthy, so the reminder is skipped rather than
+  # sent on a false premise.
+  - condition: template
+    value_template: "{{ not state_attr(streak_sensor, 'completed_today') }}"
 
 actions:
   - action: notify.send_message

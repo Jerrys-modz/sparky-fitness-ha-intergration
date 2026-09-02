@@ -175,7 +175,10 @@ Per configured server, one device with:
 - **Fasting streak** -- consecutive days with a completed fast, derived here
   the same way the nutrition logging streak is (SparkyFitness's own fasting
   stats don't include a streak) -- see Limitations for its day-boundary
-  approximation.
+  approximation. Has a `completed_today` attribute (true once today's fast
+  is done, even after `fasting_active` reads back off) -- what the fasting
+  streak reminder blueprint below checks to avoid a false "you haven't
+  started yet" reminder.
 
 ### Write-back
 - **`button.log_glass_of_water`** -- one tap logs your actual preferred water
@@ -339,16 +342,18 @@ folder. Import one via **Settings -> Automations & Scenes -> Blueprints -> Impor
 Blueprint**, pasting the blueprint's raw GitHub URL, or copy the file manually to
 `<config>/blueprints/automation/Jerrys-modz/`. Both require Home Assistant
 2024.10 or later (for the `triggers:`/`conditions:`/`actions:` syntax) and the
-integration entities they reference (v0.12.0+).
+integration entities they reference (v0.12.0+, or v0.13.0+ for the fasting
+streak reminder's completed-today check below).
 
 - **`sparky_fitness_pr_notification.yaml`** -- notifies you the moment
   `binary_sensor.pr_today` turns on, i.e. as soon as today's workout sets a new
   estimated one-rep-max or cardio personal record, listing which exercises hit
   a new record.
 - **`sparky_fitness_fasting_streak_reminder.yaml`** -- a daily reminder, at a
-  time you pick, if `sensor.fasting_streak` is greater than zero but
-  `binary_sensor.fasting_active` is still off, i.e. you have a streak going but
-  haven't started today's fast yet.
+  time you pick, if `sensor.fasting_streak` is greater than zero and
+  `binary_sensor.fasting_active` is off AND today's fast hasn't already
+  completed (via the streak sensor's `completed_today` attribute, v0.13.0+) --
+  i.e. you have a streak going but genuinely haven't started today's fast yet.
 
 Both let you pick the notify target (person, device, or notify group) and
 customize the title/message text.

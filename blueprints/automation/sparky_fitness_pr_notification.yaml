@@ -22,9 +22,11 @@ blueprint:
 
     notify_target:
       name: Notify target
-      description: Who/what should receive the notification (a person, device, or notify group).
+      description: Who/what should receive the notification (a device or area with a notify entity, or a notify group).
       selector:
-        target: {}
+        target:
+          entity:
+            domain: notify
 
     title:
       name: Notification title
@@ -45,7 +47,8 @@ blueprint:
 
 variables:
   exercises_list: "{{ trigger.to_state.attributes.exercises | default([]) }}"
-  exercises: "{{ exercises_list | join(', ') if exercises_list else 'today's workout' }}"
+  exercises: >-
+    {{ exercises_list | join(', ') if exercises_list else "today's workout" }}
 
 mode: single
 
