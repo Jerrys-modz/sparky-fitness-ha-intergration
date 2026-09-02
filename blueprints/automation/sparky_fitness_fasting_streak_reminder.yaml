@@ -1,0 +1,98 @@
+blueprint:
+  name: SparkyFitness - Fasting Streak At Risk Reminder
+  description: >-
+    Sends a daily reminder if you have an active fasting streak
+    (`sensor.fasting_streak`, added in SparkyFitness integration v0.12.0) but
+    haven't started today's fast yet -- `binary_sensor.fasting_active` is off
+    AND today's fast hasn't already completed (requires integration v0.13.0+
+    for the streak sensor's `completed_today` attribute; older versions just
+    skip the reminder instead of risking a false one). Runs once a day at a
+    time you pick -- pick a time late enough in the day that "haven't
+    started yet" is actually meaningful for your routine.
+  domain: automation
+  author: Jerrys-modz
+  source_url: https://github.com/Jerrys-modz/sparky-fitness-ha-intergration/blob/main/blueprints/automation/sparky_fitness_fasting_streak_reminder.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    fasting_active_sensor:
+      name: Fasting Active sensor
+      description: The SparkyFitness "fasting active" binary sensor.
+      selector:
+        entity:
+          domain: binary_sensor
+          integration: sparky_fitness
+
+    streak_sensor:
+      name: Fasting Streak sensor
+      description: The SparkyFitness "fasting streak" sensor (days).
+      selector:
+        entity:
+          domain: sensor
+          integration: sparky_fitness
+
+    reminder_time:
+      name: Reminder time
+      description: What time of day to check and remind, if the streak is at risk.
+      default: "20:00:00"
+      selector:
+        time: {}
+
+    notify_target:
+      name: Notify target
+      description: Who/what should receive the reminder (a device or area with a notify entity, or a notify group).
+      selector:
+        target:
+          entity:
+            domain: notify
+
+    title:
+      name: Notification title
+      description: Title of the notification.
+      default: "⏳ Fasting streak at risk"
+      selector:
+        text: {}
+
+    message:
+      name: Notification message
+      description: >-
+        The notification body. `{{ streak_days }}` is available as the
+        current streak length in days.
+      default: "You haven't started today's fast yet -- your {{ streak_days }}-day streak is on the line."
+      selector:
+        text:
+          multiline: true
+
+variables:
+  streak_sensor: !input streak_sensor
+  streak_days: "{{ states(streak_sensor) }}"
+
+mode: single
+
+triggers:
+  - trigger: time
+    at: !input reminder_time
+
+conditions:
+  - condition: state
+    entity_id: !input fasting_active_sensor
+    state: "off"
+  - condition: numeric_state
+    entity_id: !input streak_sensor
+    above: 0
+  # binary_sensor.fasting_active also reads "off" once today's fast has
+  # already completed -- without this, a streak kept alive by an early
+  # finished fast would still get a "you haven't started yet" reminder.
+  # Requires integration v0.13.0+ for the streak sensor's completed_today
+  # attribute; on an older version this template evaluates to `None`,
+  # which `not` treats as truthy, so the reminder is skipped rather than
+  # sent on a false premise.
+  - condition: template
+    value_template: "{{ not state_attr(streak_sensor, 'completed_today') }}"
+
+actions:
+  - action: notify.send_message
+    target: !input notify_target
+    data:
+      title: !input title
+      message: !input message

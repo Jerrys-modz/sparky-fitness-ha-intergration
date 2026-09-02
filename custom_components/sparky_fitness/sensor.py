@@ -531,6 +531,15 @@ class SparkyFitnessSensor(CoordinatorEntity[SparkyFitnessCoordinator], SensorEnt
             attrs["payback_hours"] = self.coordinator.data.get(
                 "sleep_debt_payback_hours"
             )
+        if self.entity_description.key == "fasting_streak":
+            # Lets automations (e.g. a "start your fast" reminder) tell
+            # apart "streak intact because today's fast is already done"
+            # from "streak intact but today's fast hasn't happened yet" --
+            # binary_sensor.fasting_active alone can't distinguish those,
+            # since it also reads off once a fast completes.
+            attrs["completed_today"] = self.coordinator.data.get(
+                "fasting_completed_today"
+            )
         if self.entity_description.key == "adaptive_tdee":
             attrs["confidence"] = self.coordinator.data.get(
                 "adaptive_tdee_confidence"

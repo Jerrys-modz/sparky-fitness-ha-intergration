@@ -633,13 +633,14 @@ def _fasting_streak(history_range: list, today: date_type) -> dict:
     # nutrition logging streak: start counting from today if it's there,
     # otherwise from yesterday.
     cursor = today
-    if today.isoformat() not in fasted_days:
+    completed_today = today.isoformat() in fasted_days
+    if not completed_today:
         cursor = today - timedelta(days=1)
     streak = 0
     while cursor.isoformat() in fasted_days:
         streak += 1
         cursor -= timedelta(days=1)
-    return {"fasting_streak_days": streak}
+    return {"fasting_streak_days": streak, "fasting_completed_today": completed_today}
 
 
 def _sleep_debt_summary(sleep_debt: dict) -> dict:

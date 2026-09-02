@@ -126,7 +126,10 @@ Per configured server, one device with:
 - **Fasting streak** — consecutive days with a completed fast, derived here
   the same way the nutrition logging streak is (SparkyFitness's own fasting
   stats don't include a streak) — see Limitations for its day-boundary
-  approximation.
+  approximation. Has a `completed_today` attribute (true once today's fast is
+  done, even after `fasting_active` reads back off) — what the fasting streak
+  reminder blueprint below checks to avoid a false "you haven't started yet"
+  reminder.
 
 ### Write-back
 - **`button.log_glass_of_water`** — one tap logs your actual preferred water
@@ -291,6 +294,29 @@ server can end up on different prefixes. Each of these four cards tries your
 configured prefix first and automatically falls back to the bare
 `sparkyfitness_` prefix per-entity if that specific one isn't found, so a mixed
 install like that still works without extra configuration.
+
+### Automation blueprints (optional)
+
+Two ready-made automation blueprints live in the repo's `blueprints/automation/`
+folder (one level up from this integration, alongside `www/`). Import one via
+**Settings → Automations & Scenes → Blueprints → Import Blueprint**, pasting the
+blueprint's raw GitHub URL, or copy the file manually to
+`<config>/blueprints/automation/Jerrys-modz/`. Both need Home Assistant 2024.10+
+and the entities they reference (integration v0.12.0+, or v0.13.0+ for the
+fasting streak reminder's completed-today check below):
+
+- **`sparky_fitness_pr_notification.yaml`** — notifies you the moment
+  `binary_sensor.pr_today` turns on, i.e. as soon as today's workout sets a new
+  estimated one-rep-max or cardio personal record, naming which exercises hit
+  a new record.
+- **`sparky_fitness_fasting_streak_reminder.yaml`** — a daily reminder, at a
+  time you pick, if `sensor.fasting_streak` is above zero and
+  `binary_sensor.fasting_active` is off and today's fast hasn't already
+  completed (via the streak sensor's `completed_today` attribute, v0.13.0+) —
+  i.e. you have a streak going but genuinely haven't started today's fast yet.
+
+Both let you pick the notify target (person, device, or notify group) and
+customize the title/message text.
 
 All write-back calls use the same Personal API Key already configured for reading —
 there's no separate "write" key to set up (SparkyFitness's own key-creation endpoint

@@ -1,0 +1,67 @@
+blueprint:
+  name: SparkyFitness - New Personal Record Notification
+  description: >-
+    Sends a notification the moment `binary_sensor.pr_today` (added in
+    SparkyFitness integration v0.12.0) turns on, i.e. as soon as today's
+    workout produces a new estimated one-rep-max or cardio personal record.
+    The notification message includes the list of exercises that just hit a
+    new record.
+  domain: automation
+  author: Jerrys-modz
+  source_url: https://github.com/Jerrys-modz/sparky-fitness-ha-intergration/blob/main/blueprints/automation/sparky_fitness_pr_notification.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    pr_sensor:
+      name: PR Today sensor
+      description: The SparkyFitness "PR today" binary sensor.
+      selector:
+        entity:
+          domain: binary_sensor
+          integration: sparky_fitness
+
+    notify_target:
+      name: Notify target
+      description: Who/what should receive the notification (a device or area with a notify entity, or a notify group).
+      selector:
+        target:
+          entity:
+            domain: notify
+
+    title:
+      name: Notification title
+      description: Title of the notification.
+      default: "🎉 New PR today!"
+      selector:
+        text: {}
+
+    message:
+      name: Notification message
+      description: >-
+        The notification body. `{{ exercises }}` is available as a
+        comma-separated list of the exercises that just set a new record.
+      default: "New record in: {{ exercises }}"
+      selector:
+        text:
+          multiline: true
+
+variables:
+  exercises_list: "{{ trigger.to_state.attributes.exercises | default([]) }}"
+  exercises: >-
+    {{ exercises_list | join(', ') if exercises_list else "today's workout" }}
+
+mode: single
+
+triggers:
+  - trigger: state
+    entity_id: !input pr_sensor
+    to: "on"
+
+conditions: []
+
+actions:
+  - action: notify.send_message
+    target: !input notify_target
+    data:
+      title: !input title
+      message: !input message
