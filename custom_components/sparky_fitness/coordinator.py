@@ -409,6 +409,125 @@ def _exercise_one_rm_trend(sessions: list, exercise_id: str) -> list[dict]:
     return points
 
 
+def _weighted_sets(session: dict, exercise_id: str) -> list[tuple[float, float]]:
+    """This session's (weight, reps) pairs for `exercise_id`, real
+    weight+reps sets only -- same "is this a real lift" filter as
+    _epley_one_rm, just returning the numbers instead of a 1RM estimate."""
+    pairs = []
+    for s in _matched_exercise_sets(session, exercise_id):
+        try:
+            weight = float(s.get("weight"))
+            reps = float(s.get("reps"))
+        except (TypeError, ValueError):
+            continue
+        if weight <= 0 or reps <= 0:
+            continue
+        pairs.append((weight, reps))
+    return pairs
+
+
+def _progression_suggestion(
+    sessions: list,
+    exercise_id: str,
+    reps_low: int,
+    reps_high: int,
+    weight_increment: float,
+) -> dict:
+    """Suggests a weight/rep target for this exercise's *next* session, via
+    double progression -- the same basic scheme most strength-training apps
+    (Strong, Hevy, etc.) build their own "suggested weight" feature on: work
+    a fixed weight for reps within [reps_low, reps_high], and once every
+    working set reaches reps_high, add weight and drop back to reps_low.
+
+    `sessions` is most-recent-first (as returned by
+    async_get_exercise_entry_history). "Working sets" means the sets done at
+    the heaviest weight used that session, so lighter warm-up sets logged
+    alongside it don't count toward hitting the rep target. Only sessions
+    with at least one real weight+reps set for this exercise count -- one
+    where it was done for bodyweight/duration only has nothing to
+    progress from."""
+    weighted_sessions = []
+    for session in sessions:
+        pairs = _weighted_sets(session, exercise_id)
+        if pairs:
+            weighted_sessions.append((session.get("entry_date"), pairs))
+        if len(weighted_sessions) >= 2:
+            break
+
+    if not weighted_sessions:
+        return {
+            "has_history": False,
+            "last_session_date": None,
+            "last_working_weight": None,
+            "last_working_reps": None,
+            "status": "no_data",
+            "suggested_weight": None,
+            "suggested_reps": None,
+            "reasoning": "No weighted sets logged for this exercise yet.",
+        }
+
+    def _working_set_summary(pairs: list[tuple[float, float]]) -> tuple[float, float]:
+        top_weight = max(weight for weight, _ in pairs)
+        working_reps = [reps for weight, reps in pairs if weight == top_weight]
+        return top_weight, min(working_reps)
+
+    last_date, last_pairs = weighted_sessions[0]
+    last_weight, last_reps = _working_set_summary(last_pairs)
+
+    if last_reps >= reps_high:
+        status = "increase_weight"
+        suggested_weight = round(last_weight + weight_increment, 2)
+        suggested_reps = reps_low
+        reasoning = (
+            f"Hit {int(last_reps)} reps on every set at {last_weight} kg last "
+            f"time (target was {reps_high}) -- add weight and drop back to "
+            f"{reps_low} reps."
+        )
+    elif last_reps >= reps_low:
+        status = "add_reps"
+        suggested_weight = last_weight
+        suggested_reps = int(last_reps) + 1
+        reasoning = (
+            f"{int(last_reps)} reps at {last_weight} kg is within range "
+            f"({reps_low}-{reps_high}) -- stay at this weight and aim for "
+            f"{suggested_reps}+ reps on your hardest set."
+        )
+    else:
+        status = "repeat_weight"
+        suggested_weight = last_weight
+        suggested_reps = reps_low
+        reasoning = (
+            f"Only {int(last_reps)} reps at {last_weight} kg last time "
+            f"(target was {reps_low}) -- repeat this weight and aim for "
+            f"{reps_low}+ reps."
+        )
+        # Missed the rep target two sessions in a row at the same weight --
+        # suggest a small deload instead of grinding at a weight that isn't
+        # moving, rather than just repeating "try again" indefinitely.
+        if len(weighted_sessions) > 1:
+            _, prev_pairs = weighted_sessions[1]
+            prev_weight, prev_reps = _working_set_summary(prev_pairs)
+            if prev_weight == last_weight and prev_reps < reps_low:
+                status = "deload"
+                suggested_weight = round(last_weight - weight_increment, 2)
+                reasoning = (
+                    f"Missed the {reps_low}-rep target at {last_weight} kg two "
+                    f"sessions in a row -- drop to {suggested_weight} kg to "
+                    f"rebuild before pushing the weight back up."
+                )
+
+    return {
+        "has_history": True,
+        "last_session_date": last_date,
+        "last_working_weight": last_weight,
+        "last_working_reps": int(last_reps),
+        "status": status,
+        "suggested_weight": suggested_weight,
+        "suggested_reps": suggested_reps,
+        "reasoning": reasoning,
+    }
+
+
 def _sum_food_macro(food_entries: list, field: str) -> float:
     """Sum one macro across today's food entries, scaled by quantity/serving
     size — the same formula SparkyFitness's own server uses for eaten

@@ -229,6 +229,19 @@ Per configured server, one device with:
   does (first search match), then estimates a 1RM per session -- via the
   Epley formula, `weight * (1 + reps/30)` -- from its last `sessions`
   (default 20, workouts not calendar days) sessions.
+- **`sparky_fitness.get_progression_suggestion`** service -- read-only "what
+  should I lift next time" suggestion for a single exercise, for the
+  progression card below. Uses double progression, the same basic scheme
+  most strength-training apps (Strong, Hevy, etc.) build their own
+  suggested-weight feature on: work a weight for reps within
+  `reps_low`-`reps_high` (default 8-12), and once every working set (the
+  sets done at the heaviest weight used that session -- lighter warm-up
+  sets don't count) hits `reps_high`, the suggestion adds `weight_increment`
+  (default 2.5 kg) and drops back to `reps_low`. Missing the low end two
+  sessions running at the same weight suggests a small deload instead of
+  repeating a stalled weight indefinitely. A simple, transparent heuristic,
+  not a substitute for judgment -- treat it as a starting point, not an
+  instruction.
 - **`sparky_fitness.get_one_rep_maxes`** service -- read-only current
   estimated 1RMs across all strength exercises, for the personal-records
   card below. A thin wrapper around SparkyFitness's own Personal Records
@@ -254,7 +267,7 @@ Per configured server, one device with:
 
 ## Dashboard cards (optional)
 
-Twelve small Lovelace cards live in this repo's `www/` folder, each with full install
+Thirteen small Lovelace cards live in this repo's `www/` folder, each with full install
 instructions in its header comment. HACS doesn't manage these automatically (this
 repo is registered as an Integration, not a Plugin) -- copy whichever ones you want
 into `<config>/www/` and register them as dashboard resources
@@ -295,6 +308,12 @@ into `<config>/www/` and register them as dashboard resources
   service above. Also entirely service-driven; an optional `exercise:`
   config option preloads a default exercise instead of requiring a search
   on first load.
+- **`sparkyfitness-progression-card.js`** -- search any strength exercise
+  and get a suggested weight/rep target for your next session, via the
+  `get_progression_suggestion` service above -- the "what should I lift next
+  time" feature apps like Strong/Hevy build in. Entirely service-driven; an
+  optional `exercise:` config option preloads a default exercise, and
+  `reps_low:`/`reps_high:`/`weight_increment:` tune the underlying scheme.
 - **`sparkyfitness-cardio-records-card.js`** -- a ranked list of your best
   times per distance milestone (1k through marathon, by sport group), via
   the `get_cardio_prs` service above. The cardio counterpart to the
@@ -367,11 +386,11 @@ custom category you have), `exercise-dashboard`, `adaptive-tdee`, and
 `water-containers/primary`, `exercise-stats/prs` (for `binary_sensor.pr_today`
 and the `get_one_rep_maxes`/`get_cardio_prs` services), `sleep-science/sleep-debt`,
 `fasting/stats`, and `fasting/history/range/{start}/{end}` -- all read-only GETs.
-On-demand GETs power `get_exercise_trend` (`v2/exercise-entries/history?exerciseId=`,
-already server-filtered to one exercise), `get_favorite_routes`
-(`exercise-stats/matched-courses`), and `get_custom_measurement_trend` (a
-`custom-measurements-range` call over a wider date range than the per-poll
-"latest value" one above). On-demand POSTs power the write-back services:
+On-demand GETs power `get_exercise_trend` and `get_progression_suggestion`
+(both `v2/exercise-entries/history?exerciseId=`, already server-filtered to
+one exercise), `get_favorite_routes` (`exercise-stats/matched-courses`), and
+`get_custom_measurement_trend` (a `custom-measurements-range` call over a
+wider date range than the per-poll "latest value" one above). On-demand POSTs power the write-back services:
 `health-data` (water/weight), `food-entries` (log_food, after a
 `foods/search`), and `exercise-entries` (log_exercise, after an
 `exercises/search`). Everything is authenticated with
@@ -406,6 +425,11 @@ SparkyFitness always allows a key to act on the data of the account it belongs t
   produces a 1RM estimate. `get_one_rep_maxes` is additionally capped at the
   top 10 exercises by estimated 1RM, since that's the size SparkyFitness's
   own Personal Records endpoint returns.
+- `get_progression_suggestion` is a simple double-progression heuristic, not
+  a coaching algorithm -- no awareness of soreness, form breakdown, planned
+  deload weeks, etc. It only looks at the last two sessions' working sets,
+  so a single logged session always gets a "repeat/add reps" suggestion
+  rather than a deload, even after a rough session.
 - `get_muscle_group_summary`'s `include_recovery` only looks back as far as
   the larger of `days` or its own default lookback (21 days) -- a muscle
   last worked further back than that shows no recovery tag at all (treat

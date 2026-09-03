@@ -305,6 +305,32 @@
         }
       }
     },
+    "get_progression_suggestion": {
+      "name": "Get progression suggestion",
+      "description": "Read-only \"what should I lift next time\" suggestion for a single exercise, via double progression.",
+      "fields": {
+        "name": {
+          "name": "Exercise name",
+          "description": "What to search for, e.g. \"bench press\"."
+        },
+        "reps_low": {
+          "name": "Rep range — low",
+          "description": "Bottom of the target rep range."
+        },
+        "reps_high": {
+          "name": "Rep range — high",
+          "description": "Top of the target rep range — hitting this on every working set triggers a weight increase."
+        },
+        "weight_increment": {
+          "name": "Weight increment",
+          "description": "How much to add (or, after two missed sessions in a row, subtract) at a time, in kg."
+        },
+        "config_entry_id": {
+          "name": "SparkyFitness server",
+          "description": "Only needed if you have more than one SparkyFitness server configured."
+        }
+      }
+    },
     "get_one_rep_maxes": {
       "name": "Get one-rep maxes",
       "description": "Read-only current estimated one-rep-maxes across all strength exercises, for the personal-records dashboard card.",

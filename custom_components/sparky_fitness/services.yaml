@@ -369,6 +369,69 @@ get_exercise_trend:
       selector:
         text:
 
+get_progression_suggestion:
+  name: Get progression suggestion
+  description: >-
+    Read-only "what should I lift next time" suggestion for a single
+    exercise, via double progression (work a weight for reps within
+    reps_low..reps_high; once every working set hits reps_high, add weight
+    and drop back to reps_low) — the same basic scheme most strength-training
+    apps build their own suggested-weight feature on. Resolves the exercise
+    name the same way log_exercise/get_exercise_trend do (first search
+    match), then looks at its most recent set(s) logged with a real weight.
+  fields:
+    name:
+      name: Exercise name
+      description: What to search for, e.g. "bench press" or "squat".
+      required: true
+      example: bench press
+      selector:
+        text:
+    reps_low:
+      name: Rep range — low
+      description: Bottom of the target rep range.
+      required: false
+      default: 8
+      selector:
+        number:
+          min: 1
+          max: 50
+          mode: box
+    reps_high:
+      name: Rep range — high
+      description: >-
+        Top of the target rep range — hitting this on every working set
+        triggers a weight increase.
+      required: false
+      default: 12
+      selector:
+        number:
+          min: 1
+          max: 50
+          mode: box
+    weight_increment:
+      name: Weight increment
+      description: >-
+        How much to add (or, after two missed sessions in a row, subtract)
+        at a time, in kg.
+      required: false
+      default: 2.5
+      selector:
+        number:
+          min: 0.1
+          max: 50
+          step: 0.1
+          mode: box
+    config_entry_id:
+      name: SparkyFitness server
+      description: >-
+        Only needed if you have more than one SparkyFitness server
+        configured.
+      required: false
+      example: "01H..."
+      selector:
+        text:
+
 get_one_rep_maxes:
   name: Get one-rep maxes
   description: >-
