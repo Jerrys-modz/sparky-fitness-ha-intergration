@@ -118,6 +118,9 @@ class SparkyFitnessProgressionCard extends HTMLElement {
   async _fetchSuggestion(name) {
     if (!this._hass || !name) return;
     const requestId = ++this._requestId;
+    // Otherwise a search for a new exercise would render the previous
+    // exercise's suggestion while this one is still loading.
+    if (name !== this._currentExercise) this._suggestion = null;
     this._loading = true;
     this._error = null;
     this._currentExercise = name;

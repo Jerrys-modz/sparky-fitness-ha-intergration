@@ -467,6 +467,8 @@ def _progression_suggestion(
         }
 
     def _working_set_summary(pairs: list[tuple[float, float]]) -> tuple[float, float]:
+        """A session's (top working weight, lowest reps at that weight) --
+        the pair the double-progression check runs against."""
         top_weight = max(weight for weight, _ in pairs)
         working_reps = [reps for weight, reps in pairs if weight == top_weight]
         return top_weight, min(working_reps)
@@ -507,9 +509,15 @@ def _progression_suggestion(
         if len(weighted_sessions) > 1:
             _, prev_pairs = weighted_sessions[1]
             prev_weight, prev_reps = _working_set_summary(prev_pairs)
-            if prev_weight == last_weight and prev_reps < reps_low:
+            deload_weight = round(last_weight - weight_increment, 2)
+            # A weight_increment as large as (or larger than) the working
+            # weight itself -- easy to hit on a light dumbbell/isolation
+            # exercise with the default 2.5 kg -- would otherwise suggest a
+            # zero or negative weight. Fall back to the plain repeat_weight
+            # suggestion above rather than something nonsensical.
+            if prev_weight == last_weight and prev_reps < reps_low and deload_weight > 0:
                 status = "deload"
-                suggested_weight = round(last_weight - weight_increment, 2)
+                suggested_weight = deload_weight
                 reasoning = (
                     f"Missed the {reps_low}-rep target at {last_weight} kg two "
                     f"sessions in a row -- drop to {suggested_weight} kg to "
