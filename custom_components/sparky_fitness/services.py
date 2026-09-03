@@ -33,6 +33,7 @@ from .coordinator import (
     _get,
     _muscle_group_summary,
     _muscle_recovery_days,
+    _progression_suggestion,
     _summarize_exercise_sessions,
 )
 
@@ -53,6 +54,7 @@ SERVICE_GET_ONE_REP_MAXES = "get_one_rep_maxes"
 SERVICE_GET_CARDIO_PRS = "get_cardio_prs"
 SERVICE_GET_FAVORITE_ROUTES = "get_favorite_routes"
 SERVICE_GET_CUSTOM_MEASUREMENT_TREND = "get_custom_measurement_trend"
+SERVICE_GET_PROGRESSION_SUGGESTION = "get_progression_suggestion"
 
 ATTR_VALUE = "value"
 ATTR_CONFIG_ENTRY_ID = "config_entry_id"
@@ -71,6 +73,9 @@ ATTR_END_DATE = "end_date"
 ATTR_SESSIONS = "sessions"
 ATTR_INCLUDE_RECOVERY = "include_recovery"
 ATTR_CATEGORY = "category"
+ATTR_REPS_LOW = "reps_low"
+ATTR_REPS_HIGH = "reps_high"
+ATTR_WEIGHT_INCREMENT = "weight_increment"
 
 _ALL_SERVICES = (
     SERVICE_LOG_WATER,
@@ -88,6 +93,7 @@ _ALL_SERVICES = (
     SERVICE_GET_CARDIO_PRS,
     SERVICE_GET_FAVORITE_ROUTES,
     SERVICE_GET_CUSTOM_MEASUREMENT_TREND,
+    SERVICE_GET_PROGRESSION_SUGGESTION,
 )
 
 _LOG_VALUE_SCHEMA = vol.Schema(
@@ -208,6 +214,22 @@ _GET_CUSTOM_MEASUREMENT_TREND_SCHEMA = vol.Schema(
         vol.Required(ATTR_CATEGORY): str,
         vol.Optional(ATTR_DAYS, default=30): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=90)
+        ),
+        vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
+_GET_PROGRESSION_SUGGESTION_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_NAME): str,
+        vol.Optional(ATTR_REPS_LOW, default=8): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=50)
+        ),
+        vol.Optional(ATTR_REPS_HIGH, default=12): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=50)
+        ),
+        vol.Optional(ATTR_WEIGHT_INCREMENT, default=2.5): vol.All(
+            vol.Coerce(float), vol.Range(min=0.1, max=50)
         ),
         vol.Optional(ATTR_CONFIG_ENTRY_ID): str,
     }
@@ -649,6 +671,57 @@ async def _handle_get_exercise_trend(hass: HomeAssistant, call: ServiceCall) -> 
     }
 
 
+async def _handle_get_progression_suggestion(
+    hass: HomeAssistant, call: ServiceCall
+) -> ServiceResponse:
+    """Suggests a weight/rep target for this exercise's next session -- the
+    "what should I lift next time" feature most strength-training apps
+    (Strong, Hevy, etc.) build in. Reuses the same exercise-search-then-
+    history fetch as get_exercise_trend; see _progression_suggestion in
+    coordinator.py for the actual double-progression algorithm."""
+    coordinator = _resolve_coordinator(hass, call)
+    name = call.data[ATTR_NAME]
+    reps_low = call.data[ATTR_REPS_LOW]
+    reps_high = call.data[ATTR_REPS_HIGH]
+    weight_increment = call.data[ATTR_WEIGHT_INCREMENT]
+    if reps_high < reps_low:
+        raise ServiceValidationError("reps_high must be greater than or equal to reps_low.")
+
+    try:
+        results = await coordinator.client.async_search_exercises(name)
+    except SparkyFitnessApiError as err:
+        raise ServiceValidationError(f"SparkyFitness exercise search failed: {err}") from err
+    if not results:
+        raise ServiceValidationError(f"No exercise found in SparkyFitness matching '{name}'.")
+    match = results[0]
+    exercise_id = match["id"]
+
+    try:
+        # Only the last couple of weighted sessions actually matter to the
+        # algorithm, but a handful of extra pages of headroom covers any
+        # non-weighted (e.g. bodyweight/duration) sessions for this exercise
+        # mixed into the same history.
+        raw_sessions = await coordinator.client.async_get_exercise_entry_history(
+            exercise_id, page_size=10
+        )
+    except SparkyFitnessApiError as err:
+        raise ServiceValidationError(
+            f"SparkyFitness exercise history fetch failed: {err}"
+        ) from err
+
+    suggestion = _progression_suggestion(
+        raw_sessions, exercise_id, reps_low, reps_high, weight_increment
+    )
+    return {
+        "exercise_id": exercise_id,
+        "exercise_name": match.get("name"),
+        "reps_low": reps_low,
+        "reps_high": reps_high,
+        "weight_increment": weight_increment,
+        **suggestion,
+    }
+
+
 async def _handle_get_one_rep_maxes(hass: HomeAssistant, call: ServiceCall) -> ServiceResponse:
     """Read-only current estimated one-rep-maxes across all strength
     exercises, for the personal-records dashboard card — straight from
@@ -904,6 +977,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_GET_EXERCISE_TREND,
         handle_get_exercise_trend,
         schema=_GET_EXERCISE_TREND_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+    async def handle_get_progression_suggestion(call: ServiceCall) -> ServiceResponse:
+        return await _handle_get_progression_suggestion(hass, call)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_PROGRESSION_SUGGESTION,
+        handle_get_progression_suggestion,
+        schema=_GET_PROGRESSION_SUGGESTION_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
 
